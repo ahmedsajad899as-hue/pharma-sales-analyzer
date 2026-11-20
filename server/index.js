@@ -29,7 +29,7 @@ import { flagConditionRowsInMercato, flagConditionTransitDups, flagConditionSelf
 // ── New modules ──────────────────────────────────────────────
 import { errorHandler } from './middleware/errorHandler.js';
 import { requireAuth } from './middleware/authMiddleware.js';
-import { heavyGetCache, bumpOnWrite } from './middleware/heavyGetCache.js';
+import { heavyGetCache, bumpOnWrite, getDataVersion } from './middleware/heavyGetCache.js';
 import { activityMiddleware } from './lib/activityLogger.js';
 import { buildNormalizationMap, areSimilar, normalizeStr, similarity } from './lib/fuzzyMatch.js';
 import { normalizeItemKey, normalizeAreaName, loadCompanyContext, resolveItemName } from './lib/itemResolver.js';
@@ -2365,40 +2365,105 @@ async function findReadableFile(id, userId) {
     select: { id: true, originalName: true, mergeGroup: true, userId: true },
   });
 }
+/** يبني ردّ condition-view كاملاً (2–5 ثوانٍ على الخادم). */
+async function buildConditionView(id, user, monthParam) {
+  const file = await findReadableFile(id, user?.id ?? null);
+  if (!file) { const e = new Error('الملف غير موجود أو لا تملك صلاحية عليه'); e.status = 404; throw e; }
+  // توقيت كل مرحلة — يُسجَّل حين يبطؤ الطلب (تشخيص بطء فتح الملف، 2026-11-17).
+  const t0 = Date.now(); let tPrev = t0; const stages = [];
+  const lap = (name) => { const t = Date.now(); stages.push(`${name}=${t - tPrev}`); tPrev = t; };
+  // طلبيات الترانزيت من ملفات المكتب المفعّلة للمُشاهِد (lib/transitOrders.js).
+  const transit = await transitSourceFiles(user?.id ?? null);
+  const months = await listSalesMonths(prisma, [id, ...transit.officeFileIds], 'sale');
+  lap('months');
+  // month=latest (الافتراضي في الواجهة) ← آخر شهر فيه بيانات.
+  const month = monthParam === 'latest' ? (months.latest || 'all') : (monthParam || null);
+  const all = await loadConditionSheets(id, { month, transit });
+  lap('sheets+transit');
+  // صفوف محسوبة أيضاً في إكسل ميركاتو (صورة فاتورة طلبية جهّزها ميركاتو) — تنبيه فقط.
+  await flagConditionRowsInMercato(all, file.userId).catch(e => console.error('[condition] فحص ميركاتو:', e?.message));
+  lap('mercato');
+  // صف بوت/فاتورة يشبه طلبية ترانزيت من ملف المكتب (نفس الصيدلية/المذخر/الايتم/الكمية، تاريخ قريب).
+  try { flagConditionTransitDups(all); } catch (e) { console.error('[condition] فحص الترانزيت:', e?.message); }
+  // نفس الطلبية محفوظة مرتين داخل الملف (نفس الصيدلية/الايتم/الكمية خلال 3 أيام) — تنبيه فقط.
+  try { flagConditionSelfDups(all); } catch (e) { console.error('[condition] فحص التكرار الداخلي:', e?.message); }
+  await attachConditionTeams(all, await conditionOfficeId(file.userId, user?.id));
+  lap('teams');
+  const sheets = await scopeSheetsToRoster(all, user);
+  const companySheet = await buildCompanySheet(all, sheets, user);
+  const canEdit = await canEditConditionFile(id, user);
+  lap('roster');
+  if (Date.now() - t0 > 1000) console.log(`[condition-view] #${id} ${month} ${Date.now() - t0}ms — ${stages.join(' ')}`);
+  return { file, sheets, companySheet, months, month: month || 'all', canEdit };
+}
+
+// ── مخبأ condition-view على الخادم (2026-11-20، طلب صاحب المشروع: «من أول فتحة بدون انتظار»).
+// المفتاح = المستخدم + الملف + الشهر (لا التوكن، فيبقى بعد إعادة الدخول). بعد أي كتابة
+// تُعرض النسخة السابقة فوراً ويُعاد الحساب بالخلفية؛ ومؤقّت يحدّث مسبقاً كل ما فُتح خلال
+// آخر 3 أيام، وقائمته تُحفظ في ملف فيُسخَّن المخبأ بعد كل إعادة تشغيل/نشر. fresh=1 (الجلب
+// بعد تعديل خانة) يحسب فوراً كي لا يرى المستخدم قيمته القديمة.
+const condViewCache = new Map(); // key -> { user, id, month, ver, at, used, data, pending }
+const COND_KEEP_MS = 3 * 24 * 60 * 60 * 1000;
+const COND_WARM_FILE = path.join(process.cwd(), 'data', 'condition-view-warm.json');
+const condKey = (uid, id, month) => `${uid}|${id}|${month}`;
+function saveCondWarmList() {
+  try {
+    const list = [...condViewCache.values()].filter(e => Date.now() - e.used < COND_KEEP_MS)
+      .map(e => ({ user: e.user, id: e.id, month: e.month, used: e.used }));
+    fs.mkdirSync(path.dirname(COND_WARM_FILE), { recursive: true });
+    fs.writeFileSync(COND_WARM_FILE, JSON.stringify(list));
+  } catch (e) { console.error('[condition-cache] save:', e?.message); }
+}
+function refreshCondView(entry) {
+  if (entry.pending) return entry.pending;
+  const ver = getDataVersion();
+  entry.pending = buildConditionView(entry.id, entry.user, entry.month)
+    .then(data => { entry.data = data; entry.ver = ver; entry.at = Date.now(); return data; })
+    .finally(() => { entry.pending = null; });
+  return entry.pending;
+}
 app.get('/api/files/:id/condition-view', requireAuth, async (req, res) => {
   const id = parseInt(req.params.id);
   if (isNaN(id)) return res.status(400).json({ error: 'معرّف غير صالح' });
+  const month = String(req.query.month || 'all');
   try {
-    const file = await findReadableFile(id, req.user?.id ?? null);
-    if (!file) return res.status(404).json({ error: 'الملف غير موجود أو لا تملك صلاحية عليه' });
-    // توقيت كل مرحلة — يُسجَّل حين يبطؤ الطلب (تشخيص بطء فتح الملف، 2026-11-17).
-    const t0 = Date.now(); let tPrev = t0; const stages = [];
-    const lap = (name) => { const t = Date.now(); stages.push(`${name}=${t - tPrev}`); tPrev = t; };
-    // طلبيات الترانزيت من ملفات المكتب المفعّلة للمُشاهِد (lib/transitOrders.js).
-    const transit = await transitSourceFiles(req.user?.id ?? null);
-    const months = await listSalesMonths(prisma, [id, ...transit.officeFileIds], 'sale');
-    lap('months');
-    // month=latest (الافتراضي في الواجهة) ← آخر شهر فيه بيانات.
-    const month = req.query.month === 'latest' ? (months.latest || 'all') : (req.query.month || null);
-    const all = await loadConditionSheets(id, { month, transit });
-    lap('sheets+transit');
-    // صفوف محسوبة أيضاً في إكسل ميركاتو (صورة فاتورة طلبية جهّزها ميركاتو) — تنبيه فقط.
-    await flagConditionRowsInMercato(all, file.userId).catch(e => console.error('[condition] فحص ميركاتو:', e?.message));
-    lap('mercato');
-    // صف بوت/فاتورة يشبه طلبية ترانزيت من ملف المكتب (نفس الصيدلية/المذخر/الايتم/الكمية، تاريخ قريب).
-    try { flagConditionTransitDups(all); } catch (e) { console.error('[condition] فحص الترانزيت:', e?.message); }
-    // نفس الطلبية محفوظة مرتين داخل الملف (نفس الصيدلية/الايتم/الكمية خلال 3 أيام) — تنبيه فقط.
-    try { flagConditionSelfDups(all); } catch (e) { console.error('[condition] فحص التكرار الداخلي:', e?.message); }
-    await attachConditionTeams(all, await conditionOfficeId(file.userId, req.user?.id));
-    lap('teams');
-    const sheets = await scopeSheetsToRoster(all, req.user);
-    const companySheet = await buildCompanySheet(all, sheets, req.user);
-    const canEdit = await canEditConditionFile(id, req.user);
-    lap('roster');
-    if (Date.now() - t0 > 1000) console.log(`[condition-view] #${id} ${month} ${Date.now() - t0}ms — ${stages.join(' ')}`);
-    res.json({ success: true, data: { file, sheets, companySheet, months, month: month || 'all', canEdit } });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+    const uid = req.user?.id ?? 0;
+    const key = condKey(uid, id, month);
+    let entry = condViewCache.get(key);
+    const isNew = !entry;
+    if (!entry) { entry = { user: req.user, id, month, ver: -1, at: 0, used: 0, data: null, pending: null }; condViewCache.set(key, entry); }
+    entry.user = req.user; entry.used = Date.now();
+    if (isNew) saveCondWarmList();
+    const stale = !entry.data || entry.ver !== getDataVersion() || Date.now() - entry.at > 10 * 60 * 1000;
+    if (entry.data && (!stale || req.query.fresh !== '1')) {
+      if (stale) refreshCondView(entry).catch(e => console.error('[condition-cache] refresh:', e?.message));
+      res.set('X-Cond-Cache', stale ? 'stale' : 'hit');
+      return res.json({ success: true, data: entry.data });
+    }
+    const data = await refreshCondView(entry);
+    res.json({ success: true, data });
+  } catch (err) { res.status(err.status || 500).json({ error: err.message }); }
 });
+// تسخين: بعد الإقلاع بـ20 ثانية ثم كل دقيقتين — واحداً واحداً (السيرفر بمعالج واحد).
+async function warmCondViews() {
+  for (const e of [...condViewCache.values()]) {
+    if (Date.now() - e.used > COND_KEEP_MS) { condViewCache.delete(condKey(e.user?.id ?? 0, e.id, e.month)); continue; }
+    if (e.data && e.ver === getDataVersion() && Date.now() - e.at < 10 * 60 * 1000) continue;
+    try { await refreshCondView(e); } catch (err) { console.error('[condition-cache] warm:', err?.message); }
+  }
+}
+setTimeout(() => {
+  try {
+    const list = JSON.parse(fs.readFileSync(COND_WARM_FILE, 'utf8'));
+    for (const w of list) {
+      if (!w?.user?.id || Date.now() - w.used > COND_KEEP_MS) continue;
+      const k = condKey(w.user.id, w.id, w.month);
+      if (!condViewCache.has(k)) condViewCache.set(k, { user: w.user, id: w.id, month: w.month, ver: -1, at: 0, used: w.used, data: null, pending: null });
+    }
+  } catch { /* لا قائمة بعد */ }
+  warmCondViews();
+  setInterval(warmCondViews, 2 * 60 * 1000);
+}, 20 * 1000);
 // PATCH/DELETE /api/files/:id/condition-rows/:saleId — تعديل/حذف صف (المالك فقط)
 app.patch('/api/files/:id/condition-rows/:saleId', requireAuth, async (req, res) => {
   try {

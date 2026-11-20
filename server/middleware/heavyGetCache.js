@@ -26,8 +26,7 @@ const HEAVY_PATHS = [
   /^\/api\/province-teams\/rep-lines$/,
   /^\/api\/rep-sales\/province-summary$/,
   /^\/api\/targets\/actuals$/,
-  // ملف اللكوديشن «شيت لكل مندوب» — 2–7 ثوانٍ لكل فتح وكل تبديل شهر (2026-11-17).
-  /^\/api\/files\/\d+\/condition-view$/,
+  // condition-view: له مخبأ خاص بالمستخدم في index.js (يعرض القديم فوراً ويحدّث بالخلفية).
 ];
 // كتابات لا تمسّ الأرقام
 const NON_DATA_WRITES = /^\/api\/(engagement|auth)\b/;

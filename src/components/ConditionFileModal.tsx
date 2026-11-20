@@ -487,6 +487,8 @@ export default function ConditionFileModal({ fileId, fileName, currency, token, 
   const [suggest, setSuggest] = useState<Suggest>(NO_SUGGEST);
   // إعادة جلب بعد حفظ خانة: بلا «جاري التحميل…» كي لا يقفز الجدول ويضيع موضع التمرير.
   const silentRef = useRef(false);
+  // بعد تعديل/حذف: الخادم يحسب من جديد بدل نسخته المخبّأة (fresh=1).
+  const freshRef = useRef(false);
   // عدّاد التعديلات المحلية: رد جلب صامت بدأ قبل تعديل أحدث يحمل القيمة القديمة فيُهمَل
   // (جلب آخر مجدول بعده أصلاً) — كي لا ترتدّ الخانة لقيمتها السابقة.
   const editSeq = useRef(0);
@@ -497,6 +499,7 @@ export default function ConditionFileModal({ fileId, fileName, currency, token, 
     let alive = true;
     (async () => {
       let silent = silentRef.current; silentRef.current = false;
+      const fresh = freshRef.current; freshRef.current = false;
       const seq = editSeq.current;
       const ck = viewCacheKey(fileId, month, token);
       const apply = (d: any, reuseFrom: Row[] | null) => {
@@ -526,7 +529,7 @@ export default function ConditionFileModal({ fileId, fileName, currency, token, 
         } else { setLoading(true); setError(''); }
       }
       try {
-        const res = await fetch(`/api/files/${fileId}/condition-view?month=${encodeURIComponent(month)}`, { headers: { Authorization: `Bearer ${token}` } });
+        const res = await fetch(`/api/files/${fileId}/condition-view?month=${encodeURIComponent(month)}${fresh ? '&fresh=1' : ''}`, { headers: { Authorization: `Bearer ${token}` } });
         const j = await res.json();
         if (!res.ok) throw new Error(j.error || 'تعذّر فتح الملف');
         writeViewCache(ck, j.data);
@@ -685,7 +688,7 @@ export default function ConditionFileModal({ fileId, fileName, currency, token, 
   const scheduleRefresh = () => {
     editSeq.current++;
     clearTimeout(refreshTimer.current);
-    refreshTimer.current = setTimeout(() => { silentRef.current = true; setReload(n => n + 1); }, 1500);
+    refreshTimer.current = setTimeout(() => { silentRef.current = true; freshRef.current = true; setReload(n => n + 1); }, 1500);
   };
   // الصيدليات الموجودة في الملف مع منطقتها — اختيار صيدلية يملأ منطقتها إن كانت فارغة.
   const pharmacyOpts = useMemo(() => {
