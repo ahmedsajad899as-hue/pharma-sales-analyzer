@@ -2305,14 +2305,19 @@ async function provinceSenderRepIds(repIds) {
     select: { linkedRepId: true },
   });
   if (!inTeam.length) return new Set();
+  // سجل مندوب بلا حساب نشط (حساب محذوف يبقى سجله) لا يرسل طلبيات، فلا يُعدّ شبيهاً بالاسم.
   const [reps, links] = await Promise.all([
-    prisma.scientificRepresentative.findMany({ where: { isActive: true, repKind: { not: PHARMACY_KIND } }, select: { id: true, name: true } }),
+    prisma.scientificRepresentative.findMany({
+      where: { isActive: true, repKind: { not: PHARMACY_KIND }, linkedUsers: { some: { isActive: true } } },
+      select: { id: true, name: true },
+    }),
     prisma.sciRepNameLink.findMany({ select: { fromKey: true, scientificRepId: true } }),
   ]);
+  const withAccount = new Set(reps.map(r => r.id));
   const holders = new Map();
   const hold = (key, id) => { if (key) { if (!holders.has(key)) holders.set(key, new Set()); holders.get(key).add(id); } };
   for (const r of reps) hold(normalizeRepName(r.name), r.id);
-  for (const l of links) hold(l.fromKey, l.scientificRepId);
+  for (const l of links) if (withAccount.has(l.scientificRepId)) hold(l.fromKey, l.scientificRepId);
   const twins = new Set();
   for (const ids of holders.values()) if (ids.size > 1) for (const id of ids) twins.add(id);
   return new Set(inTeam.map(u => u.linkedRepId).filter(id => !twins.has(id)));
