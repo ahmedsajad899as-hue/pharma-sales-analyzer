@@ -243,7 +243,7 @@ function WarehouseSearch({ warehouses, placeholder, onPick }: { warehouses: Wh[]
   );
 }
 
-export default function ViberImportPanel({ api, token, warehouses, reps, canSend, initialText, initialImages, onClose, onChanged, onFinished, botOrders, onBotSaved, onLegacy }: {
+export default function ViberImportPanel({ api, token, warehouses, reps, canSend, initialText, initialImages, allowImages = true, onClose, onChanged, onFinished, botOrders, onBotSaved, onLegacy }: {
   /** مراجعة طلبيات البوت (صفحة رفع الملفات): نفس البطاقات، تُحفظ في اللكوديشن فقط */
   botOrders?: BotOrder[] | null;
   /** حُفظت طلبيات البوت: أرقامها (تُزال من الطابور)، وملف اللكوديشن، والخلاصة */
@@ -259,6 +259,8 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
   initialText?: string | null;
   /** سكرين شوت وصل بالمشاركة */
   initialImages?: File[] | null;
+  /** ميزة «قراءة صور الطلبيات» (rep_orders_viber_images) — مطفأة = لصق النص فقط */
+  allowImages?: boolean;
   onClose: () => void;
   onChanged: () => void;
   /** انتهى الإنشاء بلا أخطاء ← تُغلق اللوحة وتُعرض الخلاصة في الصفحة */
@@ -408,6 +410,7 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
   const readImages = useCallback(async (files: File[]) => {
     const imgs = files.filter(f => /^image\//.test(f.type)).slice(0, 8);
     if (!imgs.length) return;
+    if (!allowImages) { setErr('قراءة صور الطلبيات مطفأة لحسابك — انسخ نص الرسالة والصقه'); return; }
     setReading(n => n + 1); setErr(null);
     try {
       const fd = new FormData();
@@ -417,7 +420,7 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
       if (!r.drafts.length) setErr('لم تُقرأ طلبيات من الصورة — تأكّد أن الرسائل ظاهرة وواضحة');
       addDrafts(r.drafts, r.team);
     } catch (e: any) { setErr(e.message); } finally { setReading(n => n - 1); }
-  }, [api, addDrafts]);
+  }, [api, addDrafts, allowImages]);
 
   // ما وصل بالمشاركة يُقرأ مرة واحدة عند الفتح
   const initDone = useRef(false);
@@ -438,18 +441,19 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
       const text = e.clipboardData?.getData('text/plain') ?? '';
       if (!files.length && !text.trim()) return;
       e.preventDefault();
-      if (files.length) readImages(files);
+      // الصور مطفأة والحافظة فيها نص أيضاً ← يُقرأ النص
+      if (files.length && (allowImages || !text.trim())) readImages(files);
       else readText(text);
     };
     window.addEventListener('paste', onPaste);
     return () => window.removeEventListener('paste', onPaste);
-  }, [readImages, readText]);
+  }, [readImages, readText, allowImages]);
 
   // زر «لصق» للموبايل: يقرأ الحافظة مباشرةً (صورة أو نص) بلا ضغط مطوّل
   const pasteFromClipboard = async () => {
     setErr(null);
     try {
-      if (navigator.clipboard?.read) {
+      if (allowImages && navigator.clipboard?.read) {
         const items = await navigator.clipboard.read();
         const files: File[] = [];
         for (const it of items) {
@@ -728,18 +732,20 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
           {!isBot && <div className={`vi-drop ${compactDrop ? 'is-compact' : ''} ${dragOver ? 'is-over' : ''}`}
             onDragOver={e => { e.preventDefault(); setDragOver(true); }}
             onDragLeave={() => setDragOver(false)}
-            onDrop={e => { e.preventDefault(); setDragOver(false); readImages([...e.dataTransfer.files]); }}>
+            onDrop={e => { e.preventDefault(); setDragOver(false); if (allowImages) readImages([...e.dataTransfer.files]); }}>
             {!compactDrop && (
               <>
                 <div className="vi-drop__title">انسخ رسالة من الفايبر ثم <kbd>Ctrl</kbd>+<kbd>V</kbd> هنا — كل لصقة تصير طلبية</div>
-                <div className="vi-drop__sub">أو سكرين شوت لعدة طلبيات: <kbd>Win</kbd>+<kbd>Shift</kbd>+<kbd>S</kbd> ثم <kbd>Ctrl</kbd>+<kbd>V</kbd> · أو اسحب الصور هنا</div>
+                {allowImages && <div className="vi-drop__sub">أو سكرين شوت لعدة طلبيات: <kbd>Win</kbd>+<kbd>Shift</kbd>+<kbd>S</kbd> ثم <kbd>Ctrl</kbd>+<kbd>V</kbd> · أو اسحب الصور هنا</div>}
               </>
             )}
             <div className="vi-drop__row">
               <textarea ref={captureRef} className="form-input vi-capture" rows={1} placeholder="الصق هنا…" value="" onChange={() => {}} />
               <button className="vi-btn" onClick={pasteFromClipboard} title="لصق من الحافظة"><ClipboardPaste size={14} /> لصق</button>
-              <button className="vi-btn" onClick={() => fileRef.current?.click()} title="سكرين شوت"><ImageIcon size={14} /> صور</button>
-              <input ref={fileRef} type="file" accept="image/*" multiple hidden onChange={e => { readImages([...(e.target.files ?? [])]); e.target.value = ''; }} />
+              {allowImages && <>
+                <button className="vi-btn" onClick={() => fileRef.current?.click()} title="سكرين شوت"><ImageIcon size={14} /> صور</button>
+                <input ref={fileRef} type="file" accept="image/*" multiple hidden onChange={e => { readImages([...(e.target.files ?? [])]); e.target.value = ''; }} />
+              </>}
             </div>
           </div>}
           {isBot && !drafts.length && <div className="vi-reading"><i /> تجهيز الطلبيات…</div>}

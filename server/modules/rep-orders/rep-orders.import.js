@@ -18,6 +18,7 @@ import fs from 'fs';
 import prisma from '../../lib/prisma.js';
 import { AppError } from '../../middleware/errorHandler.js';
 import { callAI } from '../../lib/geminiAi.js';
+import { userFeatureOn } from '../../lib/userFeatures.js';
 import { getManagerRoster } from '../../lib/managerRoster.js';
 import { buildRepIndex, matchRepName, repCoreKey, normalizeRepName } from '../../lib/repNameMatch.js';
 import { normalizeAreaName } from '../../lib/itemResolver.js';
@@ -33,6 +34,8 @@ import { parseViberOrder, orderFingerprint, splitPasteIntoOrders, splitWhatsAppM
 const MAX_BLOCKS = 40;
 const MAX_BLOCK_LEN = 2500;
 const MAX_SHOTS = 8;
+/** مفتاح «قراءة صور الطلبيات» في featureConfig.ts (ميزة عادية: مفعّلة ما لم تُطفأ) */
+const IMAGES_FEATURE = 'rep_orders_viber_images';
 const DUP_DAYS = 3;
 
 // ─── المندوبون المتاحون للمُشاهِد ─────────────────────────────────────────────
@@ -511,6 +514,9 @@ function parseJsonArray(reply) {
 
 /** files: صور multer (memoryStorage). كل صورة نداء ذكاء واحد ينسخ الفقاعات، ثم نفس مسار النص. */
 export async function importFromScreenshots(reqUser, files) {
+  // «قراءة صور الطلبيات» تُطفأ لكل حساب من «المميزات» — نفس قرار الواجهة
+  const u = await prisma.user.findUnique({ where: { id: reqUser.id }, select: { permissions: true } });
+  if (!userFeatureOn(u, IMAGES_FEATURE)) throw new AppError('قراءة صور الطلبيات مطفأة لحسابك — انسخ نص الرسالة والصقه', 403);
   const list = (Array.isArray(files) ? files : []).slice(0, MAX_SHOTS);
   if (!list.length) throw new AppError('أرفق سكرين شوت واحداً على الأقل', 400);
   const perShot = await Promise.all(list.map(async (f) => {

@@ -26,6 +26,8 @@ export const NEW_USER_DISABLED_FEATURES = [
   // تحليل المبيعات
   'currency_convert', 'targets_tab', 'manual_sales_entry', 'bot_invoice_condition', 'bot_orders_review',
   'warehouse_gap_import', 'province_condition_import',
+  // طلبيات المذاخر: قراءة سكرين شوت الطلبيات بالذكاء الاصطناعي
+  'rep_orders_viber_images',
   // Bonus
   'bonus_sales_upload', 'bonus_comp_upload', 'bonus_delivery_mark', 'bonus_assign_auto', 'bonus_assign_manual', 'bonus_my_rows',
   // رصيد المذاخر وتحريكها

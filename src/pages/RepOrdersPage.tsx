@@ -464,6 +464,8 @@ export default function RepOrdersPage() {
   const asImage = hasFeature('rep_orders_image_send');
   // «📥 استيراد من الفايبر» + أزرار الرد للفايبر (اشتراك لكل حساب)
   const viberImport = hasFeature('rep_orders_viber_import');
+  // سكرين شوت الطلبيات ← الذكاء الاصطناعي (تُطفأ وحدها من «المميزات»)
+  const viberImages = viberImport && hasFeature('rep_orders_viber_images');
   const [showViber, setShowViber] = useState(false);
   // ما وصل بـ«مشاركة ← Ordine» ويُفتح مباشرة في لوحة الفايبر (نص رسالة، أو سكرين شوت)
   // fromShare: فُتحت بـ«مشاركة» من الفايبر/الواتساب ← بعد الحفظ يُغلق التطبيق ويعود المستخدم للمحادثة
@@ -1028,7 +1030,7 @@ export default function RepOrdersPage() {
         <ViberImportPanel api={api} token={token} warehouses={warehouses} reps={assignableReps}
           // «إنشاء وإرسال» عبر البوت فقط إن كانت خانة «إرسال عبر البوت» مفعّلة — مطفأة = إنشاء فقط ثم إرسال يدوي
           canSend={canBotSend && viaBot}
-          initialText={viberInit?.text} initialImages={viberInit?.images}
+          initialText={viberInit?.text} initialImages={viberInit?.images} allowImages={viberImages}
           onClose={() => { setShowViber(false); setViberInit(null); }} onChanged={load}
           onFinished={(summary) => {
             const share = viberInit?.fromShare;
@@ -1041,7 +1043,7 @@ export default function RepOrdersPage() {
       )}
       {shared.length > 0 && (
         <SharedImagePicker api={api} images={shared} beginSend={canDispatch ? (o, wh) => beginSend([o], wh, true) : undefined}
-          onViber={viberImport ? () => {
+          onViber={viberImages ? () => {
             const files = shared.map((b, i) => new File([b], `shot-${i}.jpg`, { type: b.type || 'image/jpeg' }));
             clearShared(); openViber({ images: files, fromShare: true });
           } : undefined}
