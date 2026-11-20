@@ -421,6 +421,35 @@ function rowReuser(prev: Row[]) {
   return (s: Sheet): Sheet => ({ ...s, rows: s.rows.map(r => old.get(JSON.stringify(r)) ?? r) });
 }
 
+/**
+ * مخبأ ردّ condition-view في المتصفح (ذاكرة + localStorage): فتح الملف كان ينتظر
+ * الخادم 3–5 ثوانٍ كل مرة. الآن تظهر آخر نسخة فوراً ويُحدَّث بصمت.
+ */
+const VIEW_CACHE_TTL = 24 * 60 * 60 * 1000;
+const viewMem = new Map<string, any>();
+const viewCacheKey = (fileId: number, month: string, token: string | null) => `cfm:${fileId}:${month}:${(token || '').slice(-16)}`;
+function readViewCache(k: string): any | null {
+  if (viewMem.has(k)) return viewMem.get(k);
+  try {
+    const raw = localStorage.getItem(k);
+    if (!raw) return null;
+    const { at, data } = JSON.parse(raw);
+    if (Date.now() - at > VIEW_CACHE_TTL) return null;
+    viewMem.set(k, data);
+    return data;
+  } catch { return null; }
+}
+function writeViewCache(k: string, data: any) {
+  viewMem.set(k, data);
+  try {
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith('cfm:') && key !== k && key.split(':')[1] === k.split(':')[1] && key.split(':')[3] !== k.split(':')[3]) localStorage.removeItem(key);
+    }
+    localStorage.setItem(k, JSON.stringify({ at: Date.now(), data }));
+  } catch { /* المساحة ممتلئة — الذاكرة تكفي */ }
+}
+
 export default function ConditionFileModal({ fileId, fileName, currency, token, canEdit: canEditProp = false, onClose }: Props) {
   const [allSheets, setSheets] = useState<Sheet[]>([]);
   const [allCompanySheet, setCompanySheet] = useState<Sheet | null>(null);
@@ -446,6 +475,8 @@ export default function ConditionFileModal({ fileId, fileName, currency, token, 
   });
   const [tab, setTab] = useState(SUMMARY);
   const [loading, setLoading] = useState(true);
+  // تحديث بالخلفية فوق نسخة محفوظة معروضة
+  const [refreshing, setRefreshing] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [error, setError] = useState('');
   const [reload, setReload] = useState(0);
@@ -465,36 +496,53 @@ export default function ConditionFileModal({ fileId, fileName, currency, token, 
   useEffect(() => {
     let alive = true;
     (async () => {
-      const silent = silentRef.current; silentRef.current = false;
+      let silent = silentRef.current; silentRef.current = false;
       const seq = editSeq.current;
-      if (!silent) { setLoading(true); setError(''); }
-      try {
-        const res = await fetch(`/api/files/${fileId}/condition-view?month=${encodeURIComponent(month)}`, { headers: { Authorization: `Bearer ${token}` } });
-        const j = await res.json();
-        if (!res.ok) throw new Error(j.error || 'تعذّر فتح الملف');
-        if (!alive || (silent && seq !== editSeq.current)) return;
-        let nextSheets: Sheet[] = j.data.sheets;
-        let nextCompany: Sheet | null = j.data.companySheet ?? null;
-        if (silent) {
-          const reuse = rowReuser([...latest.current.sheets.flatMap(s => s.rows), ...(latest.current.company?.rows ?? [])]);
+      const ck = viewCacheKey(fileId, month, token);
+      const apply = (d: any, reuseFrom: Row[] | null) => {
+        let nextSheets: Sheet[] = d.sheets;
+        let nextCompany: Sheet | null = d.companySheet ?? null;
+        if (reuseFrom) {
+          const reuse = rowReuser(reuseFrom);
           nextSheets = nextSheets.map(reuse);
           nextCompany = nextCompany && reuse(nextCompany);
         }
         setSheets(nextSheets);
         setCompanySheet(nextCompany);
-        setMonths(j.data.months?.months ?? []);
-        setResolvedMonth(j.data.month || 'all');
-        if (typeof j.data.canEdit === 'boolean') setCanEdit(j.data.canEdit);
+        setMonths(d.months?.months ?? []);
+        setResolvedMonth(d.month || 'all');
+        if (typeof d.canEdit === 'boolean') setCanEdit(d.canEdit);
+        return { sheets: nextSheets, company: nextCompany };
+      };
+      // آخر نسخة محفوظة تُعرض فوراً (الخادم يأخذ 3–5 ثوانٍ لكل فتح)، ثم تُحدَّث بصمت.
+      let cachedRows: Row[] | null = null;
+      if (!silent) {
+        const hit = readViewCache(ck);
+        if (hit) {
+          const v = apply(hit, null);
+          cachedRows = [...v.sheets.flatMap(s => s.rows), ...(v.company?.rows ?? [])];
+          setLoading(false); setError(''); setRefreshing(true);
+          silent = true;
+        } else { setLoading(true); setError(''); }
+      }
+      try {
+        const res = await fetch(`/api/files/${fileId}/condition-view?month=${encodeURIComponent(month)}`, { headers: { Authorization: `Bearer ${token}` } });
+        const j = await res.json();
+        if (!res.ok) throw new Error(j.error || 'تعذّر فتح الملف');
+        writeViewCache(ck, j.data);
+        if (!alive || (silent && seq !== editSeq.current)) return;
+        apply(j.data, cachedRows ?? (silent ? [...latest.current.sheets.flatMap(s => s.rows), ...(latest.current.company?.rows ?? [])] : null));
         // تحميل الشهر السابق بالخلفية بعد الفتح الأول: يحفظه مخبأ الخادم فيصير التبديل إليه فورياً.
-        if (!silent && month === 'latest') {
+        if (month === 'latest' && (cachedRows || !silent)) {
           const yms = ((j.data.months?.months ?? []) as Month[]).map(m => m.ym).sort();
           const prev = yms[yms.indexOf(j.data.month) - 1];
           if (prev) setTimeout(() => {
-            fetch(`/api/files/${fileId}/condition-view?month=${encodeURIComponent(prev)}`, { headers: { Authorization: `Bearer ${token}` } }).catch(() => {});
+            fetch(`/api/files/${fileId}/condition-view?month=${encodeURIComponent(prev)}`, { headers: { Authorization: `Bearer ${token}` } })
+              .then(r => (r.ok ? r.json() : null)).then(pj => { if (pj?.data) writeViewCache(viewCacheKey(fileId, prev, token), pj.data); }).catch(() => {});
           }, 1500);
         }
-      } catch (e: any) { if (alive) setError(e.message); }
-      finally { if (alive) setLoading(false); }
+      } catch (e: any) { if (alive && !cachedRows) setError(e.message); }
+      finally { if (alive) { setLoading(false); setRefreshing(false); } }
     })();
     return () => { alive = false; };
   }, [fileId, token, month, reload]);
@@ -760,6 +808,7 @@ ${row.item} — ${row.pharmacy || ''}`)) return;
         )}
 
         {error && <div style={{ color: 'var(--c-danger)', fontSize: 13, marginBottom: 8 }}>{error}</div>}
+        {refreshing && <div style={{ color: '#94a3b8', fontSize: 11.5, marginBottom: 6, flexShrink: 0 }}>⟳ جاري تحديث البيانات…</div>}
         {!loading && mercatoDup.rows > 0 && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', flexShrink: 0, marginBottom: 8, padding: '6px 10px', borderRadius: 8, background: 'var(--c-danger-bg)', border: '1px solid var(--c-danger-border)', color: 'var(--c-danger)', fontSize: 12.5 }}>
             <span style={{ flex: '1 1 260px' }}>
