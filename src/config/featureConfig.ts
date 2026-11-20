@@ -195,6 +195,7 @@ export const PAGE_CHILDREN: Record<string, FeatureNode[]> = {
     { key: 'sci_pharmacy_warehouses', label: 'فارمسي: مكتب + مذاخر',        icon: '🏪', desc: 'زر في تقرير الشركة يضيف لعمود «فارمسي» مبيع المسوقين من المذاخر (ميركاتو/لكوديشن) لايتمات الشركة — للمقارنة فقط، لا يدخل صافي التقرير' },
     { key: 'warehouse_gap_import', label: 'مبيعات مذاخر ناقصة من ميركاتو', icon: '📑', desc: 'تنزيل نموذج إكسل خاص بالشركات والايتمات والمندوبين، لتوثيق مبيعات مذاخر لم تظهر في ملف ميركاتو، ثم رفعها لتُحتسب ضمنه', onlyRoles: ['company_manager', 'team_leader', 'supervisor', 'product_manager', 'office_manager', 'commercial_supervisor', 'commercial_team_leader'] },
     { key: 'province_condition_import', label: 'إدخال لكوديشن المحافظات (إكسل)', icon: '📥', desc: 'في «مندوبين المحافظات»: زر رفع إكسل اللكوديشن (بعمود المحافظة) إلى ملف اللكوديشن، ومقارنته بمبيع كل محافظة الكلي' },
+    { key: 'sales_folder_link', label: 'ربط مجلد المبيعات', icon: '📁', desc: 'في صفحة رفع الملفات (الحاسبة، Chrome/Edge): ربط مجلد على الحاسبة تُحفظ فيه إكسلات المكتب وميركاتو اليومية، والتطبيق يرفع الجديد منها وحده كل 3 دقائق ما دام مفتوحاً. مطفأة = لا زر ولا مراقبة للمجلد', onlyRoles: REP_ROLES },
   ],
   'rep-orders': [
     { key: 'wa_order_form', label: 'نموذج الطلبية في واتساب', icon: '📝', desc: 'المندوب يكتب اسم الصيدلية لرقم البوت الرسمي فيرد البوت بنموذج داخل واتساب: ايتماته بقائمة منسدلة مع العدد والبونص، والمذخر، و«مبيع تمّ» (يدخل مبيعات المندوبين + طابور ملف اللكوديشن، ويُحسب مرة واحدة) أو «طلبية للمذخر» (تدخل طلبيات المذاخر وتُرسل حسب وضع حسابه). بلا ذكاء اصطناعي' },
@@ -339,6 +340,8 @@ export const OPT_IN_FEATURES: ReadonlySet<string> = new Set([
   'sci_pharmacy_warehouses',
   // زر سحب الكولات من دوفايد في تحليل الكولات (2026-11-13)
   'visits_dofied_pull',
+  // ربط مجلد المبيعات في صفحة الرفع (2026-11-20)
+  'sales_folder_link',
 ]);
 
 interface FeaturePerms { disabledFeatures?: string[]; enabledFeatures?: string[] }

@@ -804,7 +804,7 @@ function AppInner() {
           <AIAssistant activePage={activePage} navigateTo={navigateTo} />
         </Suspense>
       )}
-      {token && user?.id != null && (
+      {token && user?.id != null && hasFeature('sales_folder_link') && (
         <SalesFolderWatcher userId={user.id} token={token} onUploaded={onFolderUploaded} />
       )}
       {mercatoRepNameCheckIds && token && (

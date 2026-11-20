@@ -462,9 +462,8 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
     e.preventDefault();
     setDragging(false);
     // عدة ملفات معاً ← «رفع ذكي» (كان يُرفع الأول وحده ويُهمل الباقي بصمت).
-    if (e.dataTransfer.files.length > 1) { setSmartFiles(Array.from(e.dataTransfer.files)); return; }
-    const file = e.dataTransfer.files[0];
-    if (file) requestUpload(file);
+    // وملف واحد كذلك: «رفع ذكي» هو مسار الرفع الوحيد الآن.
+    if (e.dataTransfer.files.length > 0) setSmartFiles(Array.from(e.dataTransfer.files));
   };
 
   /** بعد «رفع ذكي»: نفس ما يفعله uploadFile بعد رفعة واحدة، لكل الملفات معاً. */
@@ -1142,27 +1141,9 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
           </div>
         ) : (
           <>
-            <div style={{ fontSize: 12, color: '#64748b', marginBottom: 12, fontWeight: 600 }}>{t.upload.chooseFileType}</div>
             <div style={{ display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap' }}>
-              {([
-                { type: 'auto',    label: t.upload.typeAuto,    icon: 'uploadAuto' as const,    color: 'var(--c-purple)', bg: 'var(--c-purple-bg)', border: 'var(--c-purple-border)' },
-                { type: 'returns', label: t.upload.typeReturns, icon: 'uploadReturns' as const, color: 'var(--c-danger)', bg: 'var(--c-danger-bg)', border: 'var(--c-danger-border)' },
-                { type: 'sales',   label: t.upload.typeSales,   icon: 'uploadSales' as const,   color: 'var(--c-accent)', bg: 'var(--c-accent-light)', border: 'var(--c-accent)' },
-              ] as const).map(opt => (
-                <button key={opt.type} onClick={() => { setFileType(opt.type); setTimeout(() => fileRef.current?.click(), 0); }}
-                  style={{
-                    padding: '12px 22px', borderRadius: 8, cursor: 'pointer', fontWeight: 700,
-                    fontSize: 13, border: `1.5px solid ${opt.border}`,
-                    background: opt.bg, color: opt.color,
-                    display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6,
-                    minWidth: 110, transition: 'opacity 0.1s',
-                  }}
-                >
-                  <Icon name={opt.icon} size={24} />
-                  <span>{opt.label}</span>
-                </button>
-              ))}
-              {/* «رفع ذكي»: عدة ملفات بلا اختيار نوع، ومعاينة الجديد/الموجود قبل الحفظ */}
+              {/* «رفع ذكي» وحده (2026-11-20): يعرف النوع (مبيعات/ارجاعات/مختلط) والعملة لكل ملف
+                  ويُعدَّلان من المعاينة — فأزيلت أزرار مختلط/مبيعات فقط/ارجاعات فقط. */}
               <button onClick={() => setSmartFiles([])}
                 title="ملفات اليوم كلها مرة واحدة: يُعرف النوع والعملة تلقائياً وتُعرض الصفوف الجديدة قبل الحفظ"
                 style={{
@@ -1177,7 +1158,7 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
                 <span>رفع ذكي (عدة ملفات)</span>
               </button>
             </div>
-            {!isMobile && <SalesFolderPanel />}
+            {!isMobile && hasFeature('sales_folder_link') && <SalesFolderPanel />}
           </>
         )}
       </div>
