@@ -355,8 +355,8 @@ export async function directory(req, res, next) {
         ...r,
         repId: repLink.get(r.repUserId) ?? null,
         repKind: repKindOf.get(repLink.get(r.repUserId)) ?? 'scientific',
-        // التيم ليدر مُعيَّن مديراً للمندوب؟ عرض الأسماء يُخفي العلمي غير المربوط بقائد محافظته.
-        underLeader: t.leaderUserId != null && t.assignments.some(a => a.repUserId === r.repUserId && (a.repManagerIds ?? []).includes(t.leaderUserId)),
+        // التيم ليدر مُعيَّن مديراً للمندوب؟ (مقعد القائد شاغر ⇒ أعضاء الفريق يظهرون). عرض الأسماء يُخفي العلمي غير المربوط بقائد محافظته.
+        underLeader: t.leaderUserId == null ? true : t.assignments.some(a => a.repUserId === r.repUserId && (a.repManagerIds ?? []).includes(t.leaderUserId)),
         teamCompany: teamCompanyOf(t, r.repUserId, repKindOf.get(repLink.get(r.repUserId)) === PHARMACY_KIND),
         net: +r.net.toFixed(2),
         personalNet: +r.personalNet.toFixed(2),

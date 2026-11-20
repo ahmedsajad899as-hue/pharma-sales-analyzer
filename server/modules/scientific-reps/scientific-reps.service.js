@@ -2910,7 +2910,7 @@ export async function getProvinceMapForReps(requestedRepIds, query = {}, viewerI
     prisma.user.findMany({
       where: { linkedRepId: { in: okIds } },
       select: {
-        linkedRepId: true, role: true,
+        id: true, linkedRepId: true, role: true,
         provinceAssignments: { select: { province: { select: { name: true } } } },
         subProvinceAssignments: { select: { subProvince: { select: { province: { select: { name: true } }, _count: { select: { areas: true } } } } } },
         managersOfUser: { select: { managerId: true, manager: { select: { linkedRepId: true } } } },
@@ -2933,10 +2933,25 @@ export async function getProvinceMapForReps(requestedRepIds, query = {}, viewerI
     if (!managersOfRep.has(u.linkedRepId)) managersOfRep.set(u.linkedRepId, new Set());
     for (const m of u.managersOfUser ?? []) managersOfRep.get(u.linkedRepId).add(m.managerId);
   }
+  // محافظة مقعد قائدها شاغر: لا قائد يُشترط — يظهر أعضاء فريقها المُعيَّنون صراحةً (ProvinceRepAssignment).
+  const vacantMembers = new Map(); // اسم المحافظة → Set(repId)
+  {
+    const repOfUser = new Map(linkedUsers.map(u => [u.id, u.linkedRepId]));
+    for (const t of await prisma.provinceTeam.findMany({
+      where: { isActive: true, leaderUserId: null },
+      select: { province: { select: { name: true } }, assignments: { where: { isActive: true }, select: { repUserId: true } } },
+    })) {
+      const prov = t.province.name;
+      if (leadersOfProvince.has(prov)) continue;
+      if (!vacantMembers.has(prov)) vacantMembers.set(prov, new Set());
+      for (const a of t.assignments) { const rid = repOfUser.get(a.repUserId); if (rid) vacantMembers.get(prov).add(rid); }
+    }
+  }
   const underLeader = (prov, repId) => {
     const leaders = leadersOfProvince.get(prov);
+    if (!leaders) return vacantMembers.get(prov)?.has(repId) ?? false;
     const mgrs = managersOfRep.get(repId);
-    return !!leaders && !!mgrs && [...leaders].some(id => mgrs.has(id));
+    return !!mgrs && [...leaders].some(id => mgrs.has(id));
   };
   for (const u of linkedUsers) {
     if (!assignedProvinces.has(u.linkedRepId)) assignedProvinces.set(u.linkedRepId, new Set());
