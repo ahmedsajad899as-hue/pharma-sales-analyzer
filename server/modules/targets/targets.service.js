@@ -90,7 +90,23 @@ async function listTargetPeopleRaw(user) {
   }
   if (user.role === 'company_manager') {
     const me = await prisma.user.findUnique({ where: { id: user.id }, select: MANAGER_SELECT });
-    return me ? [managerColumn(me), ...reps] : reps;
+    if (!me) return reps;
+    const col = managerColumn(me);
+    // مدير الشركة يرى شركته فقط: لا أسماء الشركات الأخرى ولا مندوبيها (طلب 2026-11-20).
+    // مندوبه = تحته مباشرةً أو عبر قائد فريق تحته، أو من نفس شركته الرئيسية.
+    const repByUser = new Map(reps.filter(r => r.userId != null).map(r => [r.userId, r]));
+    const underMe = (r) => {
+      const seen = new Set();
+      const walk = (ids, depth) => (ids ?? []).some(id => {
+        if (seen.has(id)) return false;
+        seen.add(id);
+        if (id === user.id) return true;
+        return depth < 2 && walk(repByUser.get(id)?.managerIds, depth + 1);
+      });
+      return walk(r.managerIds, 0);
+    };
+    const mine = reps.filter(r => underMe(r) || (col.company && r.company === col.company));
+    return [col, ...mine];
   }
   if (OFFICE_VIEW_ROLES.has(user.role)) {
     const viewer = await prisma.user.findUnique({
