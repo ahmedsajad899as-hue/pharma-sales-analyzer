@@ -216,7 +216,7 @@ function EditCell({ col, value, options, state, onSave, onDone }: {
     try { el.setSelectionRange(el.value.length, el.value.length); } catch { /* حقل لا يدعم التحديد */ }
   }, []);
   const commit = (nv: string) => { if (nv.trim() !== base.current.trim()) { base.current = nv; onSave(nv); } };
-  const cs: CSSProperties = { width: '100%', minWidth: 0, fontSize: 11.5, textAlign: col.num ? 'center' : 'right', transition: 'background .4s', ...toneOf(state) };
+  const cs: CSSProperties = { width: '100%', minWidth: 0, fontSize: 11.5, textAlign: 'center', transition: 'background .4s', ...toneOf(state) };
   let field: ReactNode;
   if (col.key === 'date' || col.num) {
     // التاريخ نصّاً YYYY-MM-DD: حقل type=date يحتاج عرضاً ثابتاً كبيراً فيقصّ السنة في عمود ضيّق
@@ -320,7 +320,7 @@ const SheetRow = memo(function SheetRow({ r, cols, template, sheetRep, canEdit, 
             const box = c.key === 'date' || c.num ? VIEW_SHORT : VIEW_TEXT;
             body = (
               <div className="cfm-cell" tabIndex={0} onFocus={() => act.enter(ck)} title={shown || undefined}
-                style={{ ...VIEW_CELL, ...box, textAlign: c.num ? 'center' : 'right', ...toneOf(states?.[c.key]) }}>
+                style={{ ...VIEW_CELL, ...box, textAlign: 'center', ...toneOf(states?.[c.key]) }}>
                 {Number.isFinite(n) ? fmtExact(n) : shown}
               </div>
             );
