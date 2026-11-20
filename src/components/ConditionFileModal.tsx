@@ -7,7 +7,7 @@
 // التقارير ويراها كل من يفتح الملف.
 // ════════════════════════════════════════════════════════════════════════════
 
-import { Fragment, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { Fragment, memo, useDeferredValue, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { AutoText, ComboCell, type ComboOpt } from './ComboCell';
 
 /** الطلبية المطابقة بأعمدة الجدول نفسها — تُعرض تحت الصف المشتبه للمقارنة. */
@@ -185,33 +185,240 @@ const isSyntheticInvoice = (v: string) => /^BOT-/i.test(v);
 type Suggest = { items: ComboOpt[]; companies: ComboOpt[]; areas: ComboOpt[]; reps: ComboOpt[]; warehouses: ComboOpt[] };
 const NO_SUGGEST: Suggest = { items: [], companies: [], areas: [], reps: [], warehouses: [] };
 
+type CellState = 'saving' | 'ok' | 'err';
+type Col = typeof EDIT_COLS[number];
+const toneOf = (state?: CellState): CSSProperties =>
+  (state === 'saving' ? { opacity: 0.45 } : state === 'ok' ? { background: '#dcfce7' } : state === 'err' ? { background: '#fee2e2' } : {});
+
+const TH: CSSProperties = { padding: '6px 8px', background: '#f1f5f9', fontWeight: 700, fontSize: 11.5, whiteSpace: 'nowrap', textAlign: 'center', position: 'sticky', top: 0 };
+const TD: CSSProperties = { padding: '5px 8px', borderTop: '1px solid #e2e8f0', fontSize: 12, textAlign: 'center', whiteSpace: 'nowrap' };
+// جدول الصفوف: النص يلتفّ داخل عموده (بلا تمرير أفقي)
+const CELL_WRAP: CSSProperties = { whiteSpace: 'normal', overflowWrap: 'anywhere', fontSize: 11.5, lineHeight: 1.35 };
+
 /**
  * خانة تعديل واحدة: مسودّة محلية أثناء الكتابة، وحفظ عند الخروج/الاختيار إن تغيّرت.
  * الخانات النصية بقائمة اقتراحات (ComboCell)، والتاريخ والأرقام حقول عادية.
+ * تُركَّب للخانة المركَّز عليها فقط (SheetRow) — تأخذ التركيز فوراً، وعند مغادرتها
+ * تعود الخانة نصّاً عادياً (onDone).
  */
-function EditCell({ col, value, options, state, onSave }: {
-  col: typeof EDIT_COLS[number]; value: string; options?: ComboOpt[];
-  state?: 'saving' | 'ok' | 'err'; onSave: (v: string) => void;
+function EditCell({ col, value, options, state, onSave, onDone }: {
+  col: Col; value: string; options?: ComboOpt[];
+  state?: CellState; onSave: (v: string) => void; onDone: () => void;
 }) {
   const [v, setV] = useState(value);
   const base = useRef(value);
+  const wrap = useRef<HTMLDivElement>(null);
   useEffect(() => { setV(value); base.current = value; }, [value]);
+  useEffect(() => {
+    const el = wrap.current?.querySelector<HTMLInputElement | HTMLTextAreaElement>('input, textarea');
+    if (!el) return;
+    el.focus({ preventScroll: true });
+    try { el.setSelectionRange(el.value.length, el.value.length); } catch { /* حقل لا يدعم التحديد */ }
+  }, []);
   const commit = (nv: string) => { if (nv.trim() !== base.current.trim()) { base.current = nv; onSave(nv); } };
-  const tone: CSSProperties = state === 'saving' ? { opacity: 0.45 } : state === 'ok' ? { background: '#dcfce7' } : state === 'err' ? { background: '#fee2e2' } : {};
-  const cs: CSSProperties = { width: '100%', minWidth: 0, fontSize: 11.5, textAlign: col.num ? 'center' : 'right', transition: 'background .4s', ...tone };
+  const cs: CSSProperties = { width: '100%', minWidth: 0, fontSize: 11.5, textAlign: col.num ? 'center' : 'right', transition: 'background .4s', ...toneOf(state) };
+  let field: ReactNode;
   if (col.key === 'date' || col.num) {
     // التاريخ نصّاً YYYY-MM-DD: حقل type=date يحتاج عرضاً ثابتاً كبيراً فيقصّ السنة في عمود ضيّق
-    return (
+    field = (
       <input value={v} type="text" inputMode={col.num ? 'decimal' : undefined} placeholder={col.key === 'date' ? 'YYYY-MM-DD' : undefined}
         onChange={e => setV(e.target.value)} onBlur={() => commit(v)}
         onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); if (e.key === 'Escape') setV(base.current); }}
-        style={{ border: '1px solid transparent', borderRadius: 6, padding: '4px 3px', background: 'transparent', boxSizing: 'border-box', ...cs }}
-        onFocus={e => { e.target.style.border = '1px solid var(--c-accent)'; }} onBlurCapture={e => { e.target.style.border = '1px solid transparent'; }} />
+        style={{ border: '1px solid var(--c-accent)', borderRadius: 6, padding: '4px 3px', background: '#fff', boxSizing: 'border-box', ...cs }} />
     );
+  } else {
+    field = options
+      ? <ComboCell value={v} onChange={setV} onCommit={commit} options={options} title={v} style={cs} />
+      : <AutoText value={v} onChange={setV} onBlur={() => commit(v)} title={v} style={cs} />;
   }
-  return options
-    ? <ComboCell value={v} onChange={setV} onCommit={commit} options={options} title={v} style={cs} />
-    : <AutoText value={v} onChange={setV} onBlur={() => commit(v)} title={v} style={cs} />;
+  // القائمة المنسدلة داخل الغلاف نفسه: التنقّل إليها ليس مغادرة للخانة.
+  return <div ref={wrap} onBlur={e => { if (!wrap.current?.contains(e.relatedTarget as Node | null)) onDone(); }}>{field}</div>;
+}
+
+/**
+ * الخانة القابلة للتعديل تُعرض نصّاً عادياً حتى يُركَّز عليها (نقرة أو Tab) فيُركَّب
+ * محرّرها. كانت كل خانة محرّراً حيّاً: «كل مبيعات الشركة» بـ124 صفاً = ~1000 حقل، كلٌّ
+ * يقيس ارتفاعه (إعادة تخطيط الجدول كله) ويُصفّي قائمة الايتمات كاملة في كل رسم — فتجمّد
+ * التطبيق عند فتح التبويب ومع كل نقرة (شكوى صاحب المشروع 2026-11-20).
+ */
+const VIEW_CELL: CSSProperties = {
+  boxSizing: 'border-box', width: '100%', border: '1px solid transparent', borderRadius: 7, cursor: 'text',
+  whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', fontSize: 11.5, lineHeight: 1.45, color: '#1e293b', transition: 'background .4s',
+};
+const VIEW_SHORT: CSSProperties = { padding: '4px 3px', minHeight: 26 };
+const VIEW_TEXT: CSSProperties = { padding: '6px 7px', minHeight: 32 };
+const VIEW_CSS = '.cfm-cell:hover{border-color:#cbd5e1!important;background:#f8fafc}.cfm-cell:focus{outline:none;border-color:var(--c-accent)!important}';
+
+type RowActions = {
+  save: (r: Row, key: string, v: string) => void;
+  del: (r: Row) => void;
+  toggle: (id: number) => void;
+  /** تركيز خانة («id:col») ← يُركَّب محرّرها؛ مغادرتها ← تعود نصّاً. */
+  enter: (cellKey: string) => void;
+  leave: (cellKey: string) => void;
+};
+
+/**
+ * صفوف الشيت شبكة (CSS grid) لا جدول HTML: في الجدول أي تغيير في خانة واحدة (تركيز،
+ * حرف، ارتفاع) يعيد تخطيط الجدول كله — 25–80ms عند 124 صفاً و130–260ms عند 600، وعدة
+ * مرات في كل تعديل. كل صف هنا مستقل، والصف خارج الشاشة لا يُخطَّط ولا يُرسم
+ * (content-visibility) — فكلفة التعديل لا تكبر مع عدد الصفوف.
+ * الأعمدة بأوزان EDIT_COLS (fr) فتتطابق بين الصفوف والرأس، بلا تمرير أفقي.
+ */
+const ROW_CELL: CSSProperties = {
+  ...CELL_WRAP, display: 'flex', flexDirection: 'column', justifyContent: 'center', textAlign: 'center', minWidth: 0, boxSizing: 'border-box',
+};
+const HEAD_CELL: CSSProperties = { padding: '6px 3px', fontWeight: 700, fontSize: 11.5, textAlign: 'center', overflowWrap: 'anywhere', alignSelf: 'center' };
+const TOTAL_CELL: CSSProperties = { padding: '6px 4px', fontWeight: 800, fontSize: 12, textAlign: 'center' };
+const ROW_SEP = '1px solid #e2e8f0';
+const gridTemplate = (cols: Col[], canEdit: boolean) =>
+  [...cols.map(c => `minmax(0, ${c.w}fr)`), 'minmax(0, 7fr)', ...(canEdit ? ['34px'] : [])].join(' ');
+const BADGE: CSSProperties = { background: '#fff', border: '1px solid currentColor', borderRadius: 6, fontWeight: 700 };
+
+/**
+ * صف الشيت + أسطر المقارنة تحته. مُذكَّر (memo): حفظ خانة أو فتح مقارنة يعيد رسم
+ * الصف المعني وحده لا الجدول كله. كل الدوال تصله عبر act الثابت.
+ */
+const SheetRow = memo(function SheetRow({ r, cols, template, sheetRep, canEdit, states, editCol, editOptions, open, currency, act }: {
+  r: Row; cols: Col[]; template: string;
+  /** null = شيت جامع (المندوب عمود لكل صف)، وإلا اسم مندوب الشيت */
+  sheetRep: string | null;
+  canEdit: boolean; states?: Record<string, CellState>;
+  /** عمود الخانة الجاري تعديلها في هذا الصف، وإلا null */
+  editCol: string | null; editOptions?: ComboOpt[];
+  open: boolean; currency: string; act: RowActions;
+}) {
+  // صف الترانزيت يعيش في ملف المكتب — لا يُعدَّل ولا يُحذف من هنا.
+  const rowEditable = canEdit && !r.transit;
+  const sections = r.transitMatch || r.mercatoMatch || r.selfDup ? compareSections(r) : [];
+  const grid: CSSProperties = { display: 'grid', gridTemplateColumns: template };
+  const rowBg = r.selfDup ? '#fee2e2' : r.transitMatch ? '#ffedd5' : r.transit ? '#f0f9ff'
+    : r.mercatoMatch ? (r.mercatoMatch.level === 'duplicate' ? '#fee2e2' : '#fef3c7') : undefined;
+  const rowTitle = r.selfDup ? sections[0]?.caption : r.transitMatch ? transitTitle(r) : r.transit ? r.note : r.mercatoMatch ? mercatoTitle(r) : undefined;
+  // الصف الجاري تعديله بلا احتواء: content-visibility يجعل الصف حاوياً لما هو position:fixed
+  // ويقصّه، فتنحبس قائمة اقتراحات ComboCell داخله.
+  const contain: CSSProperties | null = editCol ? null : { contentVisibility: 'auto', containIntrinsicSize: 'auto 40px' };
+  return (
+    <div data-row="" style={{ borderTop: ROW_SEP, ...contain }}>
+      <div role="row" style={{ ...grid, background: rowBg }} title={rowTitle}>
+        {cols.map(c => {
+          const val = c.key === 'rep' ? (sheetRep ?? (r.rep || NO_REP)) : String((r as any)[c.key] ?? '');
+          const synthetic = c.key === 'invoice' && isSyntheticInvoice(val);
+          const editable = rowEditable && !c.ro && !synthetic;
+          const shown = (c.key === 'rep' && val === NO_REP) || (val === '0' && (c.key === 'bonus' || c.key === 'unitPrice')) ? '' : val;
+          const ck = `${r.id}:${c.key}`;
+          let body: ReactNode;
+          if (synthetic) body = <span title={val} style={{ color: '#94a3b8', fontSize: 11 }}>تلقائي</span>;
+          else if (!editable) body = c.num ? (val && val !== '0' ? fmt(Number(val)) : '—') : (val || '—');
+          else if (editCol === c.key) {
+            body = (
+              <EditCell col={c} value={shown} options={editOptions} state={states?.[c.key]}
+                onSave={v => act.save(r, c.key, v)} onDone={() => act.leave(ck)} />
+            );
+          } else {
+            const n = c.num && shown !== '' ? Number(shown) : NaN;
+            const box = c.key === 'date' || c.num ? VIEW_SHORT : VIEW_TEXT;
+            body = (
+              <div className="cfm-cell" tabIndex={0} onFocus={() => act.enter(ck)} title={shown || undefined}
+                style={{ ...VIEW_CELL, ...box, textAlign: c.num ? 'center' : 'right', ...toneOf(states?.[c.key]) }}>
+                {Number.isFinite(n) ? fmtExact(n) : shown}
+              </div>
+            );
+          }
+          const noRep = c.key === 'rep' && val === NO_REP;
+          return (
+            <div key={c.key} role="cell"
+              style={{ ...ROW_CELL, padding: editable ? 1 : '4px 3px', ...(noRep ? { background: '#fef3c7', color: '#92400e', fontWeight: 700 } : null) }}>
+              {body}
+              {/* المحافظة سطر صغير تحت المنطقة (كانت عموداً مستقلاً) */}
+              {c.key === 'area' && r.province && <div style={{ fontSize: 10.5, color: '#94a3b8', lineHeight: 1.2 }}>{r.province}</div>}
+            </div>
+          );
+        })}
+        <div role="cell" style={{ ...ROW_CELL, color: '#64748b', fontSize: 11, padding: '4px 4px' }}>
+          <div>
+            {r.selfDup && (
+              <span style={{ ...BADGE, display: 'inline-block', marginInlineEnd: 4, marginBottom: 2, color: '#b91c1c', padding: '0 5px' }}>
+                ⚠️ {r.selfDup.level === 'duplicate' ? 'مكرر' : 'ربما مكرر'}
+              </span>
+            )}
+            {r.transitMatch && (
+              <span title={transitTitle(r)} style={{ ...BADGE, marginInlineEnd: 6, color: '#c2410c', padding: '0 6px', whiteSpace: 'nowrap' }}>
+                ⚠️ {r.transitMatch.level === 'duplicate' ? 'مشتبه تكرار' : 'ربما مكرر'}
+              </span>
+            )}
+            {r.transit ? (
+              <span style={{ background: '#e0f2fe', color: '#0369a1', border: '1px solid #7dd3fc', borderRadius: 6, padding: '1px 8px', fontWeight: 700 }}>🔁 ترانزيت</span>
+            ) : (
+              <>
+                {r.source || '—'}
+                {r.mercatoMatch && (
+                  <span title={mercatoTitle(r)}
+                    style={{ ...BADGE, marginInlineStart: 6, color: r.mercatoMatch.level === 'duplicate' ? 'var(--c-danger)' : '#92400e', padding: '0 6px' }}>
+                    🏬 {r.mercatoMatch.level === 'duplicate' ? 'في ميركاتو' : 'ربما ميركاتو'}
+                  </span>
+                )}
+              </>
+            )}
+            {sections.length > 0 && (
+              <button onClick={() => act.toggle(r.id)} aria-expanded={open}
+                title="عرض الطلبية المشابهة تحت هذا الصف للمقارنة"
+                style={{ marginInlineStart: 6, border: '1px solid #334155', background: open ? '#334155' : '#fff', color: open ? '#fff' : '#334155', borderRadius: 6, padding: '1px 8px', fontSize: 11.5, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                {open ? '▴ إخفاء' : '▾ قارن'}
+              </button>
+            )}
+          </div>
+        </div>
+        {canEdit && (
+          <div role="cell" style={{ ...ROW_CELL, alignItems: 'center', padding: 2 }}>
+            {rowEditable && (
+              <button onClick={() => act.del(r)} title="حذف الصف"
+                style={{ border: '1px solid var(--c-danger-border)', background: 'var(--c-danger-bg)', color: 'var(--c-danger)', borderRadius: 6, padding: '2px 8px', cursor: 'pointer' }}>×</button>
+            )}
+          </div>
+        )}
+      </div>
+      {open && sections.map(sec => {
+        const l = sec.line;
+        const anyDiff = !!l && cols.some(c => cellDiffers(r, l, c.key, currency));
+        const otherCurrency = l?.currency && l.currency !== currency ? l.currency : '';
+        return (
+          <Fragment key={sec.key}>
+            <div style={{ background: sec.bg, borderTop: ROW_SEP, padding: '5px 8px', color: sec.color, fontWeight: 600, fontSize: 12, textAlign: 'right' }}>
+              {sec.caption}
+              {otherCurrency && ` — قيمة ميركاتو بعملة ${otherCurrency}`}
+              {anyDiff && <span style={{ marginInlineStart: 6, background: '#fef08a', color: '#713f12', borderRadius: 4, padding: '0 5px' }}>المظلَّل يختلف عن الصف أعلاه</span>}
+            </div>
+            {l && (
+              <div role="row" style={{ ...grid, background: '#fff', borderTop: ROW_SEP }}>
+                {cols.map(c => {
+                  const raw = (l as any)[c.key];
+                  const diff = cellDiffers(r, l, c.key, currency);
+                  return (
+                    <div key={c.key} role="cell" style={{ ...ROW_CELL, padding: '4px 3px', ...(diff ? { background: '#fef08a', color: '#713f12', fontWeight: 800 } : null) }}>
+                      {c.num ? (raw ? fmtExact(Number(raw)) : '—') : (raw || '—')}
+                    </div>
+                  );
+                })}
+                <div role="cell" style={{ ...ROW_CELL, padding: '4px 3px', color: sec.color, fontWeight: 700 }}>{l.transit ? '🔁 ترانزيت' : (l.source || '—')}</div>
+                {canEdit && <div />}
+              </div>
+            )}
+          </Fragment>
+        );
+      })}
+    </div>
+  );
+});
+
+/**
+ * إعادة الجلب الصامتة تُرجع كل الصفوف كائنات جديدة: يُبقى كائن الصف القديم إن لم
+ * يتغيّر محتواه، فلا يُعاد رسم إلا الصفوف التي تغيّرت فعلاً (SheetRow مُذكَّر بالصف).
+ */
+function rowReuser(prev: Row[]) {
+  const old = new Map<string, Row>();
+  for (const r of prev) old.set(JSON.stringify(r), r);
+  return (s: Sheet): Sheet => ({ ...s, rows: s.rows.map(r => old.get(JSON.stringify(r)) ?? r) });
 }
 
 export default function ConditionFileModal({ fileId, fileName, currency, token, canEdit: canEditProp = false, onClose }: Props) {
@@ -242,24 +449,39 @@ export default function ConditionFileModal({ fileId, fileName, currency, token, 
   const [exporting, setExporting] = useState(false);
   const [error, setError] = useState('');
   const [reload, setReload] = useState(0);
-  const [cellState, setCellState] = useState<Record<string, 'saving' | 'ok' | 'err'>>({});
+  const [cellState, setCellState] = useState<Record<string, CellState>>({});
+  // الخانة الجاري تعديلها «id:col» — محرّر واحد في الجدول كله، والباقي نصّ عادي.
+  const [editing, setEditing] = useState<string | null>(null);
   const [canEdit, setCanEdit] = useState(canEditProp);
   const [suggest, setSuggest] = useState<Suggest>(NO_SUGGEST);
   // إعادة جلب بعد حفظ خانة: بلا «جاري التحميل…» كي لا يقفز الجدول ويضيع موضع التمرير.
   const silentRef = useRef(false);
+  // عدّاد التعديلات المحلية: رد جلب صامت بدأ قبل تعديل أحدث يحمل القيمة القديمة فيُهمَل
+  // (جلب آخر مجدول بعده أصلاً) — كي لا ترتدّ الخانة لقيمتها السابقة.
+  const editSeq = useRef(0);
+  const latest = useRef<{ sheets: Sheet[]; company: Sheet | null }>({ sheets: [], company: null });
+  latest.current = { sheets: allSheets, company: allCompanySheet };
 
   useEffect(() => {
     let alive = true;
     (async () => {
       const silent = silentRef.current; silentRef.current = false;
+      const seq = editSeq.current;
       if (!silent) { setLoading(true); setError(''); }
       try {
         const res = await fetch(`/api/files/${fileId}/condition-view?month=${encodeURIComponent(month)}`, { headers: { Authorization: `Bearer ${token}` } });
         const j = await res.json();
         if (!res.ok) throw new Error(j.error || 'تعذّر فتح الملف');
-        if (!alive) return;
-        setSheets(j.data.sheets);
-        setCompanySheet(j.data.companySheet ?? null);
+        if (!alive || (silent && seq !== editSeq.current)) return;
+        let nextSheets: Sheet[] = j.data.sheets;
+        let nextCompany: Sheet | null = j.data.companySheet ?? null;
+        if (silent) {
+          const reuse = rowReuser([...latest.current.sheets.flatMap(s => s.rows), ...(latest.current.company?.rows ?? [])]);
+          nextSheets = nextSheets.map(reuse);
+          nextCompany = nextCompany && reuse(nextCompany);
+        }
+        setSheets(nextSheets);
+        setCompanySheet(nextCompany);
         setMonths(j.data.months?.months ?? []);
         setResolvedMonth(j.data.month || 'all');
         if (typeof j.data.canEdit === 'boolean') setCanEdit(j.data.canEdit);
@@ -294,14 +516,19 @@ export default function ConditionFileModal({ fileId, fileName, currency, token, 
     });
   }, [canEdit, token]);
 
+  // التبويب والشركة والنطاق والفلاتر: الزر يتلوّن فوراً (القيم الفورية)، ورسم الجدول الجديد
+  // يجري بأولوية منخفضة قابلة للمقاطعة (useDeferredValue) — فلا تتجمّد النافذة أثناءه.
+  const filters = useMemo(() => ({ tab, team, scope, mercatoOnly, transitOnly, selfOnly }), [tab, team, scope, mercatoOnly, transitOnly, selfOnly]);
+  const vf = useDeferredValue(filters);
+  const switching = vf !== filters;
   // زرّا «بغداد / المحافظات»: تصفية الصفوف ومجاميعها، والشيت الذي فرغ يختفي.
-  const scopedSheets = useMemo(() => allSheets.map(s => scopeSheet(s, scope, mercatoOnly, transitOnly, selfOnly)).filter(s => s.rows.length > 0), [allSheets, scope, mercatoOnly, transitOnly, selfOnly]);
-  const scopedCompany = useMemo(() => (allCompanySheet ? scopeSheet(allCompanySheet, scope, mercatoOnly, transitOnly, selfOnly) : null), [allCompanySheet, scope, mercatoOnly, transitOnly, selfOnly]);
+  const scopedSheets = useMemo(() => allSheets.map(s => scopeSheet(s, vf.scope, vf.mercatoOnly, vf.transitOnly, vf.selfOnly)).filter(s => s.rows.length > 0), [allSheets, vf]);
+  const scopedCompany = useMemo(() => (allCompanySheet ? scopeSheet(allCompanySheet, vf.scope, vf.mercatoOnly, vf.transitOnly, vf.selfOnly) : null), [allCompanySheet, vf]);
   // الشركات الموجودة في الملف (لأزرار الأعلى): الشركات أبجدياً ثم المسوقون.
   const teams = useMemo(() => [...new Set(allSheets.map(s => s.team).filter((t): t is string => !!t))]
     .sort((a, b) => Number(isMarketerTeam(a)) - Number(isMarketerTeam(b)) || a.localeCompare(b, 'ar')), [allSheets]);
   useEffect(() => { if (team && !teams.includes(team)) setTeam(null); }, [team, teams]);
-  const { sheets, company: companySheet } = useMemo(() => applyTeam(scopedSheets, scopedCompany, team), [scopedSheets, scopedCompany, team]);
+  const { sheets, company: companySheet } = useMemo(() => applyTeam(scopedSheets, scopedCompany, vf.team), [scopedSheets, scopedCompany, vf.team]);
   // صفوف الكوديشن المحسوبة أيضاً في ميركاتو (المندوب صوّر فاتورة طلبية جهّزها ميركاتو).
   const mercatoDup = useMemo(() => {
     const seen = new Map<number, Row>();
@@ -327,20 +554,20 @@ export default function ConditionFileModal({ fileId, fileName, currency, token, 
   useEffect(() => { if (selfOnly && selfDup.rows === 0) setSelfOnly(false); }, [selfOnly, selfDup.rows]);
   // تفصيل المحافظات (زر «المحافظات»): مجموع كل محافظة — الصف يُعدّ مرة واحدة.
   const byProvince = useMemo(() => {
-    if (scope !== 'provinces') return [];
+    if (vf.scope !== 'provinces') return [];
     const seen = new Set<number>();
     const m = new Map<string, { province: string; rows: number; quantity: number; total: number; reps: Set<string> }>();
     for (const s of sheets) for (const r of s.rows) {
       const k = r.province || UNKNOWN_PROVINCE;
       if (!m.has(k)) m.set(k, { province: k, rows: 0, quantity: 0, total: 0, reps: new Set() });
       const g = m.get(k)!;
-      g.reps.add(teams.length > 1 && team === null ? (s.team || NO_TEAM) : s.rep);
+      g.reps.add(teams.length > 1 && vf.team === null ? (s.team || NO_TEAM) : s.rep);
       if (seen.has(r.id)) continue;
       seen.add(r.id);
       g.rows++; g.quantity += r.quantity; g.total += r.total;
     }
     return [...m.values()].sort((a, b) => b.total - a.total);
-  }, [sheets, scope, teams.length, team]);
+  }, [sheets, vf.scope, teams.length, vf.team]);
   const shownMonth = month === 'latest' ? resolvedMonth : month;
 
   // تبويب مندوب لم يعد موجوداً بعد تغيير الشهر ← الملخص.
@@ -349,7 +576,7 @@ export default function ConditionFileModal({ fileId, fileName, currency, token, 
   }, [sheets, tab]);
 
   // «الكل» مع أكثر من شركة: الملخص بالشركات فقط، وأسماء المندوبين تظهر عند الضغط على شركة.
-  const teamsFirst = teams.length > 1 && team === null;
+  const teamsFirst = teams.length > 1 && vf.team === null;
   const byTeam = useMemo(() => {
     if (!teamsFirst) return [];
     // بالصفوف لا بالشيت: مبيع تيم ليدر المحافظات يتوزّع على شركات ايتماته.
@@ -392,10 +619,25 @@ export default function ConditionFileModal({ fileId, fileName, currency, token, 
   const authJson = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
   // تحديث متفائل: القيمة تظهر فوراً في كل الشيتات، ثم يُعاد الجلب بصمت (المجاميع،
   // انتقال الصف لشيت مندوب آخر، الايتم بعد توحيده).
+  // الشيت الذي لا يحوي الصف يبقى الكائن نفسه (لا يُعاد رسمه)، والمجاميع تُحسب فوراً.
   const patchLocal = (id: number, ch: Partial<Row>) => {
-    const fix = (s: Sheet): Sheet => ({ ...s, rows: s.rows.map(r => (r.id === id ? { ...r, ...ch } : r)) });
+    const fix = (s: Sheet): Sheet => (s.rows.some(r => r.id === id) ? totalsOf(s, s.rows.map(r => (r.id === id ? { ...r, ...ch } : r))) : s);
     setSheets(ss => ss.map(fix));
     setCompanySheet(cs => (cs ? fix(cs) : cs));
+  };
+  const removeLocal = (id: number) => {
+    const drop = (s: Sheet): Sheet => (s.rows.some(r => r.id === id) ? totalsOf(s, s.rows.filter(r => r.id !== id)) : s);
+    setSheets(ss => ss.map(drop).filter(s => s.rows.length > 0));
+    setCompanySheet(cs => (cs ? drop(cs) : cs));
+  };
+  // الجلب الصامت بعد الحفظ يكلّف الخادم 2–4 ثوانٍ (يُعاد حساب الملف كله): تعديلات
+  // متتالية تُجمع في جلب واحد بعد أن تهدأ، والقيمة تظهر قبله محلياً (patchLocal).
+  const refreshTimer = useRef<ReturnType<typeof setTimeout>>();
+  useEffect(() => () => clearTimeout(refreshTimer.current), []);
+  const scheduleRefresh = () => {
+    editSeq.current++;
+    clearTimeout(refreshTimer.current);
+    refreshTimer.current = setTimeout(() => { silentRef.current = true; setReload(n => n + 1); }, 1500);
   };
   // الصيدليات الموجودة في الملف مع منطقتها — اختيار صيدلية يملأ منطقتها إن كانت فارغة.
   const pharmacyOpts = useMemo(() => {
@@ -429,8 +671,7 @@ export default function ConditionFileModal({ fileId, fileName, currency, token, 
       setError(e.message);
       setCellState(m => ({ ...m, [ck]: 'err' }));
     }
-    silentRef.current = true;
-    setReload(n => n + 1);
+    scheduleRefresh();
   };
   const deleteRow = async (row: Row) => {
     if (!window.confirm(`حذف هذا الصف نهائياً؟
@@ -440,19 +681,43 @@ ${row.item} — ${row.pharmacy || ''}`)) return;
       const res = await fetch(`/api/files/${fileId}/condition-rows/${row.id}`, { method: 'DELETE', headers: authJson });
       const j = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(j.error || 'تعذّر الحذف');
-      setReload(n => n + 1);
+      // يختفي فوراً ويبقى موضع التمرير؛ علامات التكرار على شريكه تتحدّث بالجلب الصامت.
+      removeLocal(row.id);
+      scheduleRefresh();
     } catch (e: any) { setError(e.message); }
   };
 
-  const current = tab === COMPANY ? companySheet : sheets.find(s => s.rep === tab);
+  // دوال الصفوف عبر مرجع ثابت — كي لا تكسر تذكير SheetRow بدوال جديدة في كل رسم.
+  const actRef = useRef({ saveCell, deleteRow, toggleCompare });
+  actRef.current = { saveCell, deleteRow, toggleCompare };
+  const act = useMemo<RowActions>(() => ({
+    save: (r, k, v) => { void actRef.current.saveCell(r, k, v); },
+    del: r => { void actRef.current.deleteRow(r); },
+    toggle: id => actRef.current.toggleCompare(id),
+    enter: key => setEditing(key),
+    leave: key => setEditing(cur => (cur === key ? null : cur)),
+  }), []);
+  // حالة الحفظ لكل صف — الصف بلا حالة يأخذ undefined فلا يُعاد رسمه.
+  const rowStates = useMemo(() => {
+    const m = new Map<number, Record<string, CellState>>();
+    for (const [k, st] of Object.entries(cellState)) {
+      const i = k.indexOf(':');
+      const id = Number(k.slice(0, i));
+      m.set(id, { ...m.get(id), [k.slice(i + 1)]: st });
+    }
+    return m;
+  }, [cellState]);
+  const editSep = editing ? editing.indexOf(':') : -1;
+  const editId = editing ? Number(editing.slice(0, editSep)) : NaN;
+  const editCol = editing ? editing.slice(editSep + 1) : null;
+
+  const current = vf.tab === COMPANY ? companySheet : sheets.find(s => s.rep === vf.tab);
   const hasData = sheets.length > 0 || (companySheet?.rows.length ?? 0) > 0;
-  const th: CSSProperties = { padding: '6px 8px', background: '#f1f5f9', fontWeight: 700, fontSize: 11.5, whiteSpace: 'nowrap', textAlign: 'center', position: 'sticky', top: 0 };
-  const td: CSSProperties = { padding: '5px 8px', borderTop: '1px solid #e2e8f0', fontSize: 12, textAlign: 'center', whiteSpace: 'nowrap' };
-  // جدول الصفوف: النص يلتفّ داخل عموده (بلا تمرير أفقي)
-  const cellWrap: CSSProperties = { whiteSpace: 'normal', overflowWrap: 'anywhere', fontSize: 11.5, lineHeight: 1.35 };
-  const cols = EDIT_COLS.filter(c => c.key !== 'rep' || current?.all);
-  const colTotal = cols.reduce((a, c) => a + c.w, 0) + 7; // + عمود المصدر
-  const colRoom = canEdit ? 97 : 100;
+  const th = TH;
+  const td = TD;
+  const showRep = !!current?.all;
+  const cols = useMemo(() => EDIT_COLS.filter(c => c.key !== 'rep' || showRep), [showRep]);
+  const template = useMemo(() => gridTemplate(cols, canEdit), [cols, canEdit]);
   const tabBtn = (active: boolean): CSSProperties => ({
     border: `1px solid ${active ? 'var(--c-accent)' : '#e2e8f0'}`, background: active ? 'var(--c-accent-light)' : '#fff',
     color: active ? 'var(--c-accent)' : '#334155', borderRadius: 8, padding: '4px 10px', fontSize: 12, fontWeight: 700,
@@ -462,6 +727,7 @@ ${row.item} — ${row.pharmacy || ''}`)) return;
   return (
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.45)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
       <div onClick={e => e.stopPropagation()} dir="rtl" style={{ background: '#fff', borderRadius: 14, width: 'min(1320px, 100%)', maxHeight: '92vh', display: 'flex', flexDirection: 'column', padding: 18, boxShadow: '0 20px 50px rgba(0,0,0,.25)' }}>
+        <style>{VIEW_CSS}</style>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap', flexShrink: 0 }}>
           <h3 style={{ margin: 0, fontSize: 16, flex: '1 1 200px' }}>📋 {fileName}</h3>
           {/* بغداد / المحافظات — ضغطة ثانية على الزر نفسه تُرجع الكل */}
@@ -555,8 +821,9 @@ ${row.item} — ${row.pharmacy || ''}`)) return;
               ))}
             </div>
 
-            <div style={{ overflow: 'auto', flex: 1, minHeight: 0 }}>
-              {tab === SUMMARY || !current ? (
+            {/* أثناء رسم التبويب/الشركة الجديدة بالخلفية يخفت المعروض بدل أن تتجمّد النافذة */}
+            <div style={{ overflow: 'auto', flex: 1, minHeight: 0, opacity: switching ? 0.55 : 1, transition: 'opacity .12s' }}>
+              {vf.tab === SUMMARY || !current ? (
                 <>
                 {byProvince.length > 0 && (
                   <table style={{ width: '100%', borderCollapse: 'collapse', border: '1px solid #e2e8f0', marginBottom: 12 }}>
@@ -619,129 +886,26 @@ ${row.item} — ${row.pharmacy || ''}`)) return;
                 </table>
                 </>
               ) : (
-                <table style={{ width: '100%', borderCollapse: 'collapse', border: '1px solid #e2e8f0', tableLayout: 'fixed' }}>
-                  <colgroup>
-                    {/* الأوزان تُطبَّع لتملأ العرض (يُترك ~3% لعمود الحذف) — لا تمرير أفقي في أي شيت */}
-                    {cols.map(c => <col key={c.key} style={{ width: `${(c.w / colTotal) * colRoom}%` }} />)}
-                    <col style={{ width: `${(7 / colTotal) * colRoom}%` }} />
-                    {canEdit && <col style={{ width: 28 }} />}
-                  </colgroup>
-                  <thead>
-                    <tr>
-                      {cols.map(c => <th key={c.key} style={{ ...th, whiteSpace: 'normal', padding: '6px 3px' }}>{c.label}</th>)}
-                      <th style={{ ...th, whiteSpace: 'normal', padding: '6px 3px' }}>المصدر</th>
-                      {canEdit && <th style={th} />}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {current.rows.map(r => {
-                      // صف الترانزيت يعيش في ملف المكتب — لا يُعدَّل ولا يُحذف من هنا.
-                      const rowEditable = canEdit && !r.transit;
-                      const sections = r.transitMatch || r.mercatoMatch || r.selfDup ? compareSections(r) : [];
-                      const open = compareOpen.has(r.id);
-                      return (
-                      <Fragment key={r.id}>
-                      <tr style={r.selfDup ? { background: '#fee2e2' } : r.transitMatch ? { background: '#ffedd5' } : r.transit ? { background: '#f0f9ff' } : r.mercatoMatch ? { background: r.mercatoMatch.level === 'duplicate' ? '#fee2e2' : '#fef3c7' } : undefined}
-                        title={r.selfDup ? sections[0]?.caption : r.transitMatch ? transitTitle(r) : r.transit ? r.note : r.mercatoMatch ? mercatoTitle(r) : undefined}>
-                        {cols.map(c => {
-                          const val = c.key === 'rep' ? (current.all ? (r.rep || NO_REP) : current.rep) : String((r as any)[c.key] ?? '');
-                          const synthetic = c.key === 'invoice' && isSyntheticInvoice(val);
-                          const editable = rowEditable && !c.ro && !synthetic;
-                          const shown = (c.key === 'rep' && val === NO_REP) || (val === '0' && (c.key === 'bonus' || c.key === 'unitPrice')) ? '' : val;
-                          return (
-                            <td key={c.key} style={{ ...td, ...cellWrap, padding: editable ? 1 : '4px 3px',
-                              ...(c.key === 'rep' && val === NO_REP ? { background: '#fef3c7', color: '#92400e', fontWeight: 700 } : null) }}>
-                              {synthetic ? <span title={val} style={{ color: '#94a3b8', fontSize: 11 }}>تلقائي</span>
-                                : editable ? (
-                                <EditCell col={c} value={shown} options={optionsFor(c.key)} state={cellState[`${r.id}:${c.key}`]}
-                                  onSave={v => saveCell(r, c.key, v)} />
-                              ) : (c.num ? (val && val !== '0' ? fmt(Number(val)) : '—') : (val || '—'))}
-                              {/* المحافظة سطر صغير تحت المنطقة (كانت عموداً مستقلاً) */}
-                              {c.key === 'area' && r.province && <div style={{ fontSize: 10.5, color: '#94a3b8', lineHeight: 1.2 }}>{r.province}</div>}
-                            </td>
-                          );
-                        })}
-                        <td style={{ ...td, ...cellWrap, color: '#64748b', fontSize: 11 }}>
-                          {r.selfDup && (
-                            <span style={{ display: 'inline-block', marginInlineEnd: 4, marginBottom: 2, background: '#fff', color: '#b91c1c', border: '1px solid currentColor', borderRadius: 6, padding: '0 5px', fontWeight: 700 }}>
-                              ⚠️ {r.selfDup.level === 'duplicate' ? 'مكرر' : 'ربما مكرر'}
-                            </span>
-                          )}
-                          {r.transitMatch && (
-                            <span title={transitTitle(r)} style={{ marginInlineEnd: 6, background: '#fff', color: '#c2410c', border: '1px solid currentColor', borderRadius: 6, padding: '0 6px', fontWeight: 700, whiteSpace: 'nowrap' }}>
-                              ⚠️ {r.transitMatch.level === 'duplicate' ? 'مشتبه تكرار' : 'ربما مكرر'}
-                            </span>
-                          )}
-                          {r.transit
-                            ? <span style={{ background: '#e0f2fe', color: '#0369a1', border: '1px solid #7dd3fc', borderRadius: 6, padding: '1px 8px', fontWeight: 700 }}>🔁 ترانزيت</span>
-                            : <>
-                                {r.source || '—'}
-                                {r.mercatoMatch && (
-                                  <span title={mercatoTitle(r)} style={{ marginInlineStart: 6, background: '#fff', color: r.mercatoMatch.level === 'duplicate' ? 'var(--c-danger)' : '#92400e', border: '1px solid currentColor', borderRadius: 6, padding: '0 6px', fontWeight: 700 }}>
-                                    🏬 {r.mercatoMatch.level === 'duplicate' ? 'في ميركاتو' : 'ربما ميركاتو'}
-                                  </span>
-                                )}
-                              </>}
-                          {sections.length > 0 && (
-                            <button onClick={() => toggleCompare(r.id)} aria-expanded={open}
-                              title="عرض الطلبية المشابهة تحت هذا الصف للمقارنة"
-                              style={{ marginInlineStart: 6, border: '1px solid #334155', background: open ? '#334155' : '#fff', color: open ? '#fff' : '#334155', borderRadius: 6, padding: '1px 8px', fontSize: 11.5, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}>
-                              {open ? '▴ إخفاء' : '▾ قارن'}
-                            </button>
-                          )}
-                        </td>
-                        {canEdit && (
-                          <td style={td}>
-                            {rowEditable && <button onClick={() => deleteRow(r)} title="حذف الصف" style={{ border: '1px solid var(--c-danger-border)', background: 'var(--c-danger-bg)', color: 'var(--c-danger)', borderRadius: 6, padding: '2px 8px', cursor: 'pointer' }}>×</button>}
-                          </td>
-                        )}
-                      </tr>
-                      {open && sections.map(sec => {
-                        const l = sec.line;
-                        const anyDiff = !!l && cols.some(c => cellDiffers(r, l, c.key, currency));
-                        const otherCurrency = l?.currency && l.currency !== currency ? l.currency : '';
-                        return (
-                          <Fragment key={sec.key}>
-                            {/* العمود الأيمن من الجدول قد يكون خارج الشاشة بعد التمرير الأفقي: الوصف ثابت في المنظور. */}
-                            <tr style={{ background: sec.bg }}>
-                              <td colSpan={cols.length + 1 + (canEdit ? 1 : 0)} style={{ ...td, textAlign: 'right', padding: 0 }}>
-                                <div style={{ boxSizing: 'border-box', padding: '5px 8px', whiteSpace: 'normal', color: sec.color, fontWeight: 600 }}>
-                                  {sec.caption}
-                                  {otherCurrency && ` — قيمة ميركاتو بعملة ${otherCurrency}`}
-                                  {anyDiff && <span style={{ marginInlineStart: 6, background: '#fef08a', color: '#713f12', borderRadius: 4, padding: '0 5px' }}>المظلَّل يختلف عن الصف أعلاه</span>}
-                                </div>
-                              </td>
-                            </tr>
-                            {l && (
-                              <tr style={{ background: '#fff' }}>
-                                {cols.map(c => {
-                                  const raw = (l as any)[c.key];
-                                  const diff = cellDiffers(r, l, c.key, currency);
-                                  return (
-                                    <td key={c.key} style={{ ...td, ...cellWrap, ...(diff ? { background: '#fef08a', color: '#713f12', fontWeight: 800 } : null) }}>
-                                      {c.num ? (raw ? fmtExact(Number(raw)) : '—') : (raw || '—')}
-                                    </td>
-                                  );
-                                })}
-                                <td style={{ ...td, ...cellWrap, color: sec.color, fontWeight: 700 }}>{l.transit ? '🔁 ترانزيت' : (l.source || '—')}</td>
-                                {canEdit && <td style={td} />}
-                              </tr>
-                            )}
-                          </Fragment>
-                        );
-                      })}
-                      </Fragment>
-                      );
-                    })}
-                    <tr style={{ background: '#f8fafc' }}>
-                      <td style={{ ...td, fontWeight: 800 }} colSpan={cols.findIndex(c => c.key === 'quantity')}>المجموع — {fmt(current.orders)} طلبية</td>
-                      <td style={{ ...td, fontWeight: 800 }}>{fmt(current.quantity)}</td>
-                      <td style={td} colSpan={2} />
-                      <td style={{ ...td, fontWeight: 800 }}>{fmt(current.total)}</td>
-                      <td style={td} colSpan={canEdit ? 2 : 1} />
-                    </tr>
-                  </tbody>
-                </table>
+                <div role="table" style={{ border: ROW_SEP }}>
+                  <div role="row" style={{ display: 'grid', gridTemplateColumns: template, position: 'sticky', top: 0, zIndex: 2, background: '#f1f5f9' }}>
+                    {cols.map(c => <div key={c.key} role="columnheader" style={HEAD_CELL}>{c.label}</div>)}
+                    <div role="columnheader" style={HEAD_CELL}>المصدر</div>
+                    {canEdit && <div />}
+                  </div>
+                  {current.rows.map(r => (
+                    <SheetRow key={r.id} r={r} cols={cols} template={template} sheetRep={current.all ? null : current.rep} canEdit={canEdit}
+                      states={rowStates.get(r.id)} editCol={r.id === editId ? editCol : null}
+                      editOptions={r.id === editId && editCol ? optionsFor(editCol) : undefined}
+                      open={compareOpen.has(r.id)} currency={currency} act={act} />
+                  ))}
+                  <div role="row" style={{ display: 'grid', gridTemplateColumns: template, background: '#f8fafc', borderTop: ROW_SEP }}>
+                    <div style={{ ...TOTAL_CELL, gridColumn: `span ${cols.findIndex(c => c.key === 'quantity')}` }}>المجموع — {fmt(current.orders)} طلبية</div>
+                    <div style={TOTAL_CELL}>{fmt(current.quantity)}</div>
+                    <div style={{ gridColumn: 'span 2' }} />
+                    <div style={TOTAL_CELL}>{fmt(current.total)}</div>
+                    <div style={{ gridColumn: `span ${canEdit ? 2 : 1}` }} />
+                  </div>
+                </div>
               )}
             </div>
           </>
