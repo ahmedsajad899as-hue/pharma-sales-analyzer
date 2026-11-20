@@ -833,7 +833,8 @@ async function _finishProcessing({ salesRows, returnsRows, skippedRows, file, up
  */
 function isReturnSheet(sheetName) {
   const s = String(sheetName).trim();
-  return /ارجاع|ارجاعات|الارجاع|الارجاعات|اراجيع|رجيع|مرتجع|مرتجعات|المرتجع|المرتجعات|return|returns|refund|refunds|credit note|credit|debit note/i
+  // «رجاع» تغطي ارجاع/استرجاع/استرجاعات/إرجاع — «استرجاعات مع تفاصيل» كان يفلت فيُقرأ مبيعاً.
+  return /[اإ]?رجاع|استرجاع|مسترجع|اراجيع|رجيع|مرتجع|مرتجعات|المرتجع|المرتجعات|return|returns|refund|refunds|credit note|credit|debit note/i
     .test(s);
 }
 
@@ -874,6 +875,15 @@ export function decideSmartFileType(workbook, originalName = '') {
   if (!firstHeaders) return { fileType: 'sales', reason: 'default' };
   if (detectMercatoFormat(firstHeaders)) return { fileType: 'sales', reason: 'mercato' };
 
+  // الاسم لم يحسم ولا يقول «مبيعات» صراحةً → نقرأ المحتوى (returnsContentSignals).
+  if (!isSalesSheet(base) && !isSalesSheet(first)) {
+    const sig = returnsContentSignals(workbook.Sheets[first], firstHeaders);
+    if (sig.score >= 2) {
+      console.log('[upload] smart: محتوى الملف يدل على ارجاع —', sig);
+      return { fileType: 'returns', reason: 'content' };
+    }
+  }
+
   const firstSet = new Set(firstHeaders);
   const sameShape = (h) => {
     const cm = resolveColumns(h, {});
@@ -886,6 +896,48 @@ export function decideSmartFileType(workbook, originalName = '') {
   });
   if (extraData) return { fileType: 'auto', reason: 'multi-sheet' };
   return { fileType: 'sales', reason: 'default' };
+}
+
+/**
+ * علامات محتوى تميّز ملف الإرجاع عن المبيع حين لا يقولها الاسم (ملاحظات المستخدم):
+ *  1. location — عمود «الموقع» بلا عمود محافظة (ملف المبيع يحمل المحافظة).
+ *  2. qty      — كميات غير منتظمة (13، 17، 22، 59…) بدل مضاعفات الخمسة (5، 10، 20، 50).
+ *  3. price    — سعر وحدة يتغيّر للايتم نفسه داخل الملف: الإرجاع يُحسب بسعر صافٍ
+ *                (net price بعد خصم البونص) فيختلف من صف لآخر، والمبيع بسعر ثابت.
+ * الحسم بعلامتين من ثلاث على الأقل — علامة وحدها قد تظهر في ملف مبيع.
+ */
+export function returnsContentSignals(ws, headers) {
+  const out = { score: 0, location: false, qty: false, price: false };
+  if (!ws) return out;
+  const cm = resolveColumns(headers, {});
+  const has = f => cm[f] && cm[f] !== f && headers.includes(cm[f]);
+  const norm = s => String(s ?? '').trim().replace(/[أإآ]/g, 'ا');
+
+  out.location = headers.some(h => /^(ال)?موقع$/.test(norm(h)) || /^location$/i.test(norm(h))) && !has('province');
+
+  if (has('quantity') && has('item')) {
+    const rows = XLSX.utils.sheet_to_json(ws, { defval: '', range: detectHeaderRow(ws) });
+    let big = 0, irregular = 0;
+    const prices = new Map(); // item → Set(سعر الوحدة مقرَّباً)
+    for (const r of rows) {
+      const q = Math.abs(parseNumeric(r[cm.quantity]));
+      if (!q) continue;
+      if (q >= 5) { big++; if (q % 5 !== 0) irregular++; }
+      const item = norm(r[cm.item]).toLowerCase();
+      const unit = has('unitPrice') ? Math.abs(parseNumeric(r[cm.unitPrice]))
+        : has('totalValue') ? Math.abs(parseNumeric(r[cm.totalValue])) / q : 0;
+      if (item && unit > 0) {
+        if (!prices.has(item)) prices.set(item, []);
+        prices.get(item).push(Math.round(unit));
+      }
+    }
+    out.qty = big >= 10 && irregular / big >= 0.35;
+    const multi = [...prices.values()].filter(p => p.length >= 2);
+    const varying = multi.filter(p => new Set(p).size > 1).length;
+    out.price = multi.length >= 3 && varying / multi.length >= 0.5;
+  }
+  out.score = [out.location, out.qty, out.price].filter(Boolean).length;
+  return out;
 }
 
 /**

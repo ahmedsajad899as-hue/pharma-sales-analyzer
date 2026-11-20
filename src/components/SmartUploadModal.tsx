@@ -100,7 +100,7 @@ const range = (a: string | null, b: string | null) => (!a ? '' : a === b ? short
 
 const TYPE_LABEL: Record<FileType, string> = { sales: 'مبيعات', returns: 'ارجاعات', auto: 'مختلط (كل الأوراق)' };
 const REASON_LABEL: Record<string, string> = {
-  'file-name': 'من اسم الملف', 'sheet-name': 'من اسم الورقة', 'multi-sheet': 'أوراق بالأعمدة نفسها', mercato: '', default: '',
+  'file-name': 'من اسم الملف', 'sheet-name': 'من اسم الورقة', 'multi-sheet': 'أوراق بالأعمدة نفسها', content: 'من محتوى الملف (الموقع/الكميات/الأسعار)', mercato: '', default: '',
 };
 const CURRENCY_NOTE: Record<Preview['currencyReason'], string> = {
   existing: 'عملة ملفك الحالي', 'existing-other': 'عملة ملفاتك الأخرى — تأكد منها', detected: 'مكتشفة من القيم — تأكد منها', chosen: '',
