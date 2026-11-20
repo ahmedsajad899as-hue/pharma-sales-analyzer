@@ -53,19 +53,7 @@ export default function BatchMonthGroups<B extends GroupBatch>({ batches, render
         const lasts = active.map(x => x.b.lastDate).filter(Boolean) as string[];
         const first = firsts.sort()[0], last = lasts.sort().at(-1);
         const latest = g.list.reduce((a, x) => (new Date(x.b.uploadedAt) > new Date(a.b.uploadedAt) ? x : a), g.list[0]);
-        const pickedId = picked[g.key] ?? latest.b.id;
-        const pickedBatch = g.list.find(x => x.b.id === pickedId)?.b ?? latest.b;
-        const markIds = new Set((pickedBatch.items || []).map(i => i.itemId));
-
-        // ايتمات الشهر كاملاً (الرفعات المفعّلة فقط) — مجموع كل الرفعات.
-        const monthItems = new Map<number, BatchItem>();
-        for (const { b } of active) for (const it of b.items || []) {
-          const o = monthItems.get(it.itemId) || { ...it, qty: 0, value: 0 };
-          o.qty += it.qty; o.value += it.value;
-          monthItems.set(it.itemId, o);
-        }
-        const items = [...monthItems.values()].sort((a, z) =>
-          Number(markIds.has(z.itemId)) - Number(markIds.has(a.itemId)) || z.value - a.value);
+        const monthItemCount = new Set(active.flatMap(x => (x.b.items || []).map(i => i.itemId))).size;
 
         return (
           <div key={g.key} style={{ border: '1px solid #bfdbfe', borderRadius: 10, background: '#fff', overflow: 'hidden' }}>
@@ -76,7 +64,7 @@ export default function BatchMonthGroups<B extends GroupBatch>({ batches, render
               <span style={{ fontWeight: 800, color: '#1d4ed8', fontSize: 13 }}>🗓️ شهر {monthLabel(g.key)}</span>
               <span>{num(g.list.length)} رفعة</span>
               <span style={{ color: '#065f46' }}>+{num(added)} صف</span>
-              <span>{num(monthItems.size)} ايتم</span>
+              <span>{num(monthItemCount)} ايتم</span>
               {first && last && <span>🧾 {shortDate(first)} ← {shortDate(last)}</span>}
               <span style={{ color: '#94a3b8' }}>آخر رفعة {shortDate(latest.b.uploadedAt)}</span>
               <span style={{ marginInlineStart: 'auto', color: '#64748b' }}>{isOpen ? '▲' : '▼'}</span>
@@ -84,44 +72,31 @@ export default function BatchMonthGroups<B extends GroupBatch>({ batches, render
 
             {isOpen && (
               <div style={{ padding: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
-                {items.length > 0 && (
-                  <div style={{ border: '1px solid #e2e8f0', borderRadius: 8, padding: '6px 8px', background: '#f8fafc' }}>
-                    <div style={{ fontSize: 11, color: '#475569', marginBottom: 5 }}>
-                      ايتمات الشهر — <span style={{ color: '#047857', fontWeight: 700 }}>● المؤشَّرة رُفع لها مبيع في «{pickedBatch.originalName}» ({shortDate(pickedBatch.uploadedAt)})</span>
-                    </div>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, maxHeight: 150, overflowY: 'auto' }}>
-                      {items.map(it => {
-                        const on = markIds.has(it.itemId);
-                        const inBatch = on ? pickedBatch.items!.find(x => x.itemId === it.itemId) : null;
-                        return (
-                          <span
-                            key={it.itemId}
-                            title={on ? `بهذه الرفعة: ${num(inBatch!.qty)} — مجموع الشهر: ${num(it.qty)}` : `مجموع الشهر: ${num(it.qty)}`}
-                            style={{
-                              fontSize: 11, borderRadius: 999, padding: '2px 8px', whiteSpace: 'nowrap',
-                              background: on ? '#d1fae5' : '#fff', color: on ? '#065f46' : '#64748b',
-                              border: `1px solid ${on ? '#6ee7b7' : '#e2e8f0'}`, fontWeight: on ? 700 : 500,
-                            }}
-                          >
-                            {on && '● '}{it.name} · {num(it.qty)}{on && inBatch && inBatch.qty !== it.qty ? ` (+${num(inBatch.qty)})` : ''}
-                          </span>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
                 {g.list.map(({ b, idx }) => {
-                  const sel = b.id === pickedBatch.id;
+                  const sel = picked[b.id] === 1;
                   const btn = (b.items?.length ?? 0) > 0 ? (
                     <button
-                      onClick={() => setPicked(p => ({ ...p, [g.key]: b.id }))}
-                      title="تأشير ايتمات هذه الرفعة في قائمة ايتمات الشهر"
+                      onClick={() => setPicked(p => ({ ...p, [b.id]: sel ? 0 : 1 }))}
+                      title="عرض الايتمات التي رُفع لها مبيع في هذه الرفعة"
                       style={{ border: `1px solid ${sel ? '#34d399' : '#cbd5e1'}`, background: sel ? '#ecfdf5' : '#fff', color: sel ? '#047857' : '#475569', borderRadius: 6, padding: '2px 8px', fontSize: 11, cursor: 'pointer', fontWeight: sel ? 700 : 500 }}
                     >
-                      {sel ? '● ' : ''}{num(b.items!.length)} ايتم
+                      {num(b.items!.length)} ايتم {sel ? '▲' : '▼'}
                     </button>
                   ) : null;
-                  return <div key={b.id}>{renderBatch(b, idx, btn)}</div>;
+                  return (
+                    <div key={b.id}>
+                      {renderBatch(b, idx, btn)}
+                      {sel && (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, padding: '6px 4px 2px', maxHeight: 150, overflowY: 'auto' }}>
+                          {b.items!.map(it => (
+                            <span key={it.itemId} style={{ fontSize: 11, borderRadius: 999, padding: '2px 8px', whiteSpace: 'nowrap', background: '#d1fae5', color: '#065f46', border: '1px solid #6ee7b7', fontWeight: 600 }}>
+                              {it.name} · {num(it.qty)}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
                 })}
               </div>
             )}
