@@ -22,7 +22,7 @@ import { clearMarketersTeamCache } from '../scientific-reps/scientific-reps.serv
 const userSelect = {
   id: true, username: true, displayName: true, role: true,
   isActive: true, phone: true, permissions: true, officeId: true,
-  linkedRepId: true,
+  linkedRepId: true, listNote: true,
   createdAt: true,
   office: { select: { id: true, name: true } },
   linkedRep: { select: { id: true, name: true, repKind: true, officeSource: true } },
@@ -357,6 +357,7 @@ export async function updateUser(req, res) {
       data.passwordEncrypted = encryptPassword(password);
     }
     if (linkedRepId !== undefined)  data.linkedRepId  = linkedRepId ? parseInt(linkedRepId) : null;
+    if (req.body.listNote !== undefined) data.listNote = String(req.body.listNote ?? '').replace(/\s+/g, ' ').trim().slice(0, 60) || null;
 
     if (data.username) {
       const conflict = await findUsernameConflict(data.username, id);

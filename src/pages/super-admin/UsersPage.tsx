@@ -1180,6 +1180,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
               ].map(([k, v]) => (
                 <div key={k}><div style={{ fontSize: 11, color: '#94a3b8', textTransform: 'uppercase', marginBottom: 3 }}>{k}</div><div style={{ fontWeight: 600 }}>{v}</div></div>
               ))}
+              <ListNoteField key={detail.id} userId={detail.id} initial={(detail as any).listNote ?? ''} headers={H} onSaved={() => loadDetail(detail.id)} />
               {/* Linked Rep row */}
               <div style={{ gridColumn: '1 / -1' }}>
                 <div style={{ fontSize: 11, color: '#94a3b8', textTransform: 'uppercase', marginBottom: 6 }}>المندوب المرتبط (linkedRepId)</div>
@@ -3027,6 +3028,33 @@ function ConflictBox({ existing, onGo }: { existing: any; onGo: () => void }) {
       <button onClick={onGo} style={{ marginTop: 8, background: '#b45309', color: '#fff', border: 'none', borderRadius: 6, padding: '5px 12px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
         🔎 اعرضه في القائمة
       </button>
+    </div>
+  );
+}
+
+/** ملاحظة قصيرة تظهر أمام المندوب في جدول اللكوديشن (مثل «شمال بابل») — للجميع. */
+function ListNoteField({ userId, initial, headers, onSaved }: { userId: number; initial: string; headers: () => Record<string, string>; onSaved: () => void }) {
+  const [val, setVal] = useState(initial);
+  const [saving, setSaving] = useState(false);
+  const dirty = val.trim() !== initial.trim();
+  const save = async () => {
+    setSaving(true);
+    try {
+      const r = await fetch(`/api/sa/users/${userId}`, { method: 'PUT', headers: headers(), body: JSON.stringify({ listNote: val }) });
+      if (!r.ok) throw new Error();
+      onSaved();
+    } catch { alert('تعذّر حفظ الملاحظة'); }
+    finally { setSaving(false); }
+  };
+  return (
+    <div style={{ gridColumn: '1 / -1' }}>
+      <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 3 }}>ملاحظة في جدول اللكوديشن (تظهر للجميع بجانب اسمه)</div>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        <input value={val} maxLength={60} placeholder="مثلاً: شمال بابل" onChange={e => setVal(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter' && dirty && !saving) save(); }}
+          style={{ flex: 1, maxWidth: 320, fontSize: 13, padding: '6px 10px', border: '1px solid #cbd5e1', borderRadius: 8 }} />
+        {dirty && <button type="button" disabled={saving} onClick={save} style={{ ...btnStyle('#1f4fb4', true), fontSize: 12, padding: '5px 12px' }}>{saving ? '…' : 'حفظ'}</button>}
+      </div>
     </div>
   );
 }

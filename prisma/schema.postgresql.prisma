@@ -21,6 +21,8 @@ model User {
   // /api/sa/users/:id/password (سوبر أدمن). passwordHash يبقى المصدر الوحيد
   // للمصادقة الفعلية؛ هذا الحقل موجود فقط لعرض كلمة المرور للماستر أدمن.
   passwordEncrypted String?
+  // ملاحظة قصيرة تظهر أمام المندوب في جدول اللكوديشن (مثل «شمال بابل») — يكتبها السوبر أدمن
+  listNote     String?
   role         String   @default("user")
   // Legacy roles: "admin" | "manager" | "user"
   // New roles:    "office_manager" | "office_hr" | "office_employee"
@@ -3878,15 +3880,3 @@ model YazenMatchRun {
   @@map("yazen_match_runs")
 }
 
-/// ملاحظة قصيرة يكتبها المكتب أمام مندوب في جدول اللكوديشن (مثل «شمال بابل»).
-/// key = مفتاح السطر في الجدول: u<userId> لمندوب فريق، r<repId> لغيره.
-model ProvinceRepNote {
-  id          Int      @id @default(autoincrement())
-  officeId    Int      @default(0)
-  key         String
-  note        String
-  updatedById Int?
-  updatedAt   DateTime @updatedAt
-
-  @@unique([officeId, key])
-}

@@ -649,35 +649,21 @@ export async function pendingCount(req, res, next) {
 }
 
 // ── ملاحظات المندوبين في جدول اللكوديشن (مثل «شمال بابل») ───────────────────
-// تُشارَك داخل المكتب: يقرؤها كل من في المكتب، ويكتبها إدارة المكتب وموظفوه.
-const NOTE_MAX = 60;
-const NOTE_KEY = /^[ur]\d{1,10}$/;
-
+// تُكتب من السوبر أدمن (User.listNote) وتظهر للجميع. المفتاح = مفتاح سطر الجدول:
+// u<userId> لمندوب فريق، r<repId> لسطر بلا حساب في فريق (المسوقون).
 // GET /api/province-teams/rep-notes
 export async function repNotes(req, res, next) {
   try {
-    const viewer = await loadViewer(req.user);
-    const officeId = viewer.officeId ?? 0;
-    const rows = await prisma.provinceRepNote.findMany({ where: { officeId }, select: { key: true, note: true } });
-    res.json({ success: true, canEdit: viewer.mode === 'office', notes: Object.fromEntries(rows.map(r => [r.key, r.note])) });
-  } catch (e) { next(e); }
-}
-
-// PUT /api/province-teams/rep-notes  { key, note } — نص فارغ = حذف
-export async function saveRepNote(req, res, next) {
-  try {
-    const viewer = await loadViewer(req.user);
-    if (viewer.mode !== 'office') return res.status(403).json({ success: false, message: 'غير مسموح' });
-    const key = String(req.body?.key ?? '');
-    if (!NOTE_KEY.test(key)) return res.status(400).json({ success: false, message: 'مفتاح غير صالح' });
-    const note = String(req.body?.note ?? '').replace(/\s+/g, ' ').trim().slice(0, NOTE_MAX);
-    const officeId = viewer.officeId ?? 0;
-    if (!note) await prisma.provinceRepNote.deleteMany({ where: { officeId, key } });
-    else await prisma.provinceRepNote.upsert({
-      where: { officeId_key: { officeId, key } },
-      create: { officeId, key, note, updatedById: viewer.id },
-      update: { note, updatedById: viewer.id },
+    const users = await prisma.user.findMany({
+      where: { listNote: { not: null } },
+      select: { id: true, linkedRepId: true, listNote: true },
     });
-    res.json({ success: true, key, note });
+    const notes = {};
+    for (const u of users) {
+      if (!u.listNote) continue;
+      notes[`u${u.id}`] = u.listNote;
+      if (u.linkedRepId) notes[`r${u.linkedRepId}`] = u.listNote;
+    }
+    res.json({ success: true, notes });
   } catch (e) { next(e); }
 }
