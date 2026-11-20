@@ -98,9 +98,10 @@ async function loadTeamLiquidation(repUserIds, files, month, viewerId, onLine = 
           date: dayOf(r.saleDate), invoice: String(raw.invoiceNumber ?? rawCol(raw, INVOICE_KEY_RE) ?? '').trim(),
           pharmacy: String(raw.pharmacy || r.customer?.name || '').trim(),
           area: r.area?.name && r.area.name !== 'غير محدد' ? r.area.name : '',
-          warehouse: String(raw.warehouse ?? rawCol(raw, WAREHOUSE_KEY_RE) ?? '').trim(),
-          itemId: r.itemId ?? null, item: r.item?.name ?? `#${r.itemId}`, company: String(raw.company ?? '').trim(),
-          quantity: sign * r.quantity, bonus: Number(raw.bonus) || 0, usd: sign * saleValueUSD(r),
+          warehouse: String(raw.warehouse ?? rawCol(raw, WAREHOUSE_NAME_KEY_RE, WAREHOUSE_NOT_NAME_RE) ?? '').trim(),
+          itemId: r.itemId ?? null, item: r.item?.name ?? `#${r.itemId}`,
+          company: String(raw.company ?? rawCol(raw, COMPANY_KEY_RE) ?? '').trim(),
+          quantity: sign * r.quantity, bonus: Number(raw.bonus ?? rawCol(raw, BONUS_KEY_RE)) || 0, usd: sign * saleValueUSD(r),
           source: sign < 0 ? 'إرجاع' : condition ? (LIQ_SOURCE_LABEL[raw.source] || 'ملف اللكوديشن') : 'ميركاتو',
         });
       }
@@ -112,8 +113,16 @@ async function loadTeamLiquidation(repUserIds, files, month, viewerId, onLine = 
 const dayOf = (d) => (d && new Date(d) >= UNDATED_CUTOFF ? new Date(d).toISOString().slice(0, 10) : '');
 const rawOf = (v) => { if (v && typeof v === 'object') return v; try { return JSON.parse(v || '{}') || {}; } catch { return {}; } };
 const INVOICE_KEY_RE = /رقم\s*(ال)?(فاتور|طلب)|invoice/i;
-const WAREHOUSE_KEY_RE = /مذخر|warehouse|distributor/i;
-const rawCol = (raw, re) => { const k = Object.keys(raw).find(x => re.test(x)); return k ? raw[k] : null; };
+// ميركاتو فيه «رقم طلبية المذخر» و«حالة طلبية المذخر» قبل «اسم المذخر»: نأخذ عمود الاسم لا الرقم/الحالة.
+const WAREHOUSE_NAME_KEY_RE = /مذخر|warehouse|distributor/i;
+const WAREHOUSE_NOT_NAME_RE = /رقم|حال|طلبي|number|status|no\b/i;
+// «الصنف» في ميركاتو = الشركة المصنّعة (راجع mercatoColumnMap).
+const COMPANY_KEY_RE = /^(ال)?صنف$|^company$/i;
+const BONUS_KEY_RE = /بونص|bonus/i;
+const rawCol = (raw, re, notRe = null) => {
+  const k = Object.keys(raw).find(x => re.test(x.trim()) && !(notRe && notRe.test(x)) && String(raw[x] ?? '').trim() !== '');
+  return k ? raw[k] : null;
+};
 const LIQ_SOURCE_LABEL = {
   'telegram-order': 'بوت تلكرام', 'viber-order': 'بوت فايبر', 'whatsapp-order': 'بوت واتساب',
   'warehouse-gap-template': 'إكسل اللكوديشن', 'manual-invoice': 'فاتورة يدوية',
@@ -148,6 +157,13 @@ export async function repLines(req, res, next) {
       if (allowedSet && !allowedSet.has(line.itemId)) return;
       rows.push({ ...line, province: provinceName, usd: +line.usd.toFixed(4) });
     });
+    // سطر بلا شركة (ملف قديم أو سطر مندوب لم تُكتب شركته): شركة الايتم من الكتالوج.
+    const missing = [...new Set(rows.filter(r => !r.company && r.itemId).map(r => r.itemId))];
+    if (missing.length) {
+      const items = await prisma.item.findMany({ where: { id: { in: missing } }, select: { id: true, company: { select: { name: true } }, scientificCompany: { select: { name: true } } } });
+      const co = new Map(items.map(i => [i.id, i.company?.name || i.scientificCompany?.name || '']));
+      for (const r of rows) if (!r.company && r.itemId) r.company = co.get(r.itemId) || '';
+    }
     rows.sort((a, b) => (b.date || '').localeCompare(a.date || '') || a.pharmacy.localeCompare(b.pharmacy, 'ar'));
     const repName = team.assignments.find(a => a.repUserId === repUserId)?.repName ?? '';
     res.json({ success: true, month, province: team.provinceName, repName, files: { currency: files.currency, rate: files.rate }, rows });
