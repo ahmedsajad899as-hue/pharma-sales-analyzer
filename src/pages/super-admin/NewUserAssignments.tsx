@@ -93,7 +93,7 @@ function UserGroups({ list, selected, onChange, forceOpen, roles, emptyText, bul
   );
 }
 
-export default function NewUserAssignments({ form, setForm, role, companies, offices, users, roles, token, isOfficeRole, isMarketer }: {
+export default function NewUserAssignments({ form, setForm, role, companies, offices, users, roles, token, isOfficeRole, isMarketer, geo, companyItemsUrl, hideSubs }: {
   form: any; setForm: any;
   role: string;            // الدور الفعلي (بعد تحويل خيارات الفارمسي)
   companies: (Named & { officeId: number })[];
@@ -103,6 +103,12 @@ export default function NewUserAssignments({ form, setForm, role, companies, off
   token?: string;
   isOfficeRole: boolean;   // أدوار المكتب تأخذ كل شركاته تلقائياً
   isMarketer: boolean;     // المسوق: بلا شركة رئيسية
+  /** خارج السوبر أدمن (إدارة المكتب): المناطق/المحافظات/الأقسام جاهزة بدل /api/sa/* */
+  geo?: { areas: AreaRow[]; provinces: Named[]; subProvinces: SubRow[] };
+  /** خارج السوبر أدمن: رابط ايتمات الشركات المختارة بدل /api/sa/users/0/company-items */
+  companyItemsUrl?: (companyIds: number[]) => string;
+  /** إخفاء تبويب «التابعون» (نموذج إدارة المكتب ينشئ مندوبين فقط) */
+  hideSubs?: boolean;
 }) {
   const [tab, setTab] = useState<Key>('companies');
   const [q, setQ] = useState<Record<Key, string>>({ companies: '', items: '', areas: '', managers: '', subs: '' });
@@ -121,10 +127,14 @@ export default function NewUserAssignments({ form, setForm, role, companies, off
   const managerIds: number[] = form.managerIds ?? [];
   const subIds: number[] = form.subordinateIds ?? [];
   const provinceId = form.provinceId ? Number(form.provinceId) : null;
-  const canHaveSubs = MANAGER_ROLES.has(role);
+  const canHaveSubs = MANAGER_ROLES.has(role) && !hideSubs;
   const set = (patch: any) => setForm((f: any) => ({ ...f, ...patch }));
 
   useEffect(() => {
+    if (geo) {
+      setAreas(geo.areas); setProvinces(geo.provinces); setSubProvinces(geo.subProvinces); setAreasLoad('ok');
+      return;
+    }
     Promise.all([
       fetch('/api/sa/areas', { headers: H }).then(r => r.json()).catch(() => null),
       fetch('/api/sa/sub-provinces', { headers: H }).then(r => r.json()).catch(() => null),
@@ -136,14 +146,14 @@ export default function NewUserAssignments({ form, setForm, role, companies, off
       setAreasLoad(a?.success ? 'ok' : 'error');
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [geo]);
 
   // ايتمات الشركات المختارة (معاينة بلا حفظ — نفس endpoint تبويب «الايتمات»).
   useEffect(() => {
     if (!companyIds.length) { setItems([]); setItemsLoad('ok'); return; }
     let stale = false;
     setItemsLoad('loading');
-    fetch(`/api/sa/users/0/company-items?companyIds=${companyIds.join(',')}`, { headers: H })
+    fetch(companyItemsUrl ? companyItemsUrl(companyIds) : `/api/sa/users/0/company-items?companyIds=${companyIds.join(',')}`, { headers: H })
       .then(r => r.json())
       .then(j => { if (stale) return; setItems(j?.success ? j.data : []); setItemsLoad(j?.success ? 'ok' : 'error'); })
       .catch(() => { if (!stale) { setItems([]); setItemsLoad('error'); } });

@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { listCompanyMembers, getMemberAreas, setMemberAreas, getRepAreas, setRepAreas, updateMember } from './company-members.controller.js';
+import { newUserOptions, newUserCompanyItems, createMemberUser } from './company-members.create.js';
 import { requireAuth } from '../../middleware/authMiddleware.js';
 
 const router = Router();
@@ -17,6 +18,10 @@ router.use(requireAuth, requireCompanyManagerOrAdmin);
 
 router.get('/',                     listCompanyMembers);
 // Specific routes BEFORE parameterized routes to avoid conflicts
+// إضافة مستخدم من إدارة المكتب (company-members.create.js — يتحقق من الدور والميزة بنفسه)
+router.get('/new-user/options',       newUserOptions);
+router.get('/new-user/company-items', newUserCompanyItems);
+router.post('/new-user',              createMemberUser);
 router.get('/by-rep/:repId/areas',  getRepAreas);
 router.put('/by-rep/:repId/areas',  setRepAreas);
 router.get('/:userId/areas',        getMemberAreas);

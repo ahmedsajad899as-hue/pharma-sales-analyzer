@@ -12,7 +12,12 @@ interface AreaChange {
   added: string[];
   removed: string[];
   provinceMaterialized: boolean;
-  kind?: 'areas' | 'profile' | 'item' | 'item_create';
+  kind?: 'areas' | 'profile' | 'item' | 'item_create' | 'create';
+  /** kind='create': حساب أنشأته إدارة المكتب */
+  created?: {
+    kind: 'scientific' | 'marketer'; companies: string[]; itemCount: number;
+    province: string | null; subProvinces: string[]; areaCount: number; managers: string[];
+  };
   companyName?: string | null;
   itemChanges?: { field: string; from: string | number | null; to: string | number | null }[];
   oldName?: string | null;
@@ -99,7 +104,7 @@ export default function AreaChangesPage() {
         <div>
           <h2 style={{ margin: 0, fontSize: 19, fontWeight: 800, color: '#1e1b4b' }}>📍 تغييرات المناطق</h2>
           <p style={{ margin: '4px 0 0', fontSize: 13, color: '#64748b' }}>
-            تعديلات المدراء على مناطق المندوبين والتيم ليدرية وحساباتهم، وعلى الايتمات وأسعارها — من غيّر، ماذا، وقبل/بعد
+            تعديلات المدراء على مناطق المندوبين والتيم ليدرية وحساباتهم، والحسابات التي أنشأتها إدارة المكتب، وعلى الايتمات وأسعارها — من غيّر، ماذا، وقبل/بعد
           </p>
         </div>
         <div style={{ fontSize: 13, color: '#6366f1', fontWeight: 700, background: '#eef2ff', padding: '6px 14px', borderRadius: 10 }}>
@@ -139,17 +144,32 @@ export default function AreaChangesPage() {
                 width: 38, height: 38, borderRadius: 11, flexShrink: 0,
                 background: '#6366f115', color: '#6366f1',
                 display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18,
-              }}>{isItemKind(r.kind) ? '💊' : r.kind === 'profile' ? '👤' : '📍'}</div>
+              }}>{isItemKind(r.kind) ? '💊' : r.kind === 'create' ? '➕' : r.kind === 'profile' ? '👤' : '📍'}</div>
 
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 14.5, fontWeight: 700, color: '#1e293b', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                   <span>👔 {r.manager}</span>
                   {r.managerRole && <span style={roleChip}>{roleLabel(r.managerRole)}</span>}
-                  <span style={{ color: '#94a3b8', fontWeight: 500 }}>{r.kind === 'item_create' ? 'أضاف ايتم' : r.kind === 'item' ? 'عدّل ايتم' : r.kind === 'profile' ? 'عدّل حساب' : 'عدّل مناطق'}</span>
+                  <span style={{ color: '#94a3b8', fontWeight: 500 }}>{r.kind === 'create' ? 'أنشأ حساب' : r.kind === 'item_create' ? 'أضاف ايتم' : r.kind === 'item' ? 'عدّل ايتم' : r.kind === 'profile' ? 'عدّل حساب' : 'عدّل مناطق'}</span>
                   <span>{isItemKind(r.kind) ? '💊' : '👤'} {r.target}</span>
                   {r.companyName && <span style={roleChip}>{r.companyName}</span>}
-                  {r.targetRole && <span style={roleChip}>{roleLabel(r.targetRole)}</span>}
+                  {r.created
+                    ? <span style={roleChip}>{r.created.kind === 'marketer' ? '🏪 مسوّق' : '🩺 مندوب علمي'}</span>
+                    : r.targetRole && <span style={roleChip}>{roleLabel(r.targetRole)}</span>}
                 </div>
+
+                {r.created && (() => {
+                  const c = r.created;
+                  const where = [c.province, ...c.subProvinces].filter(Boolean).join('، ');
+                  return (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8, alignItems: 'center', fontSize: 12.5 }}>
+                      {c.companies.length > 0 && <span style={addChip} title={c.companies.join('\n')}>🏭 {c.companies.length === 1 ? c.companies[0] : `${c.companies.length} شركات`}</span>}
+                      <span style={addChip}>💊 {c.itemCount ? `${c.itemCount} ايتم` : 'كل ايتمات شركاته'}</span>
+                      <span style={addChip}>📍 {c.areaCount} منطقة{where ? ` · ${where}` : ''}</span>
+                      {c.managers.length > 0 && <span style={addChip}>⬆️ {c.managers.join('، ')}</span>}
+                    </div>
+                  );
+                })()}
 
                 {isItemKind(r.kind) && (r.itemChanges ?? []).map((c, i) => (
                   <div key={i} style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8, alignItems: 'center', fontSize: 12.5 }}>

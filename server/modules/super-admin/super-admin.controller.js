@@ -535,8 +535,10 @@ export async function markDoctorChangesSeen(req, res) {
 // details = { targetUserId, oldName?, newName?, isActive? }
 // item_catalog_update / item_catalog_create = تعديل/إضافة ايتم من صفحة «الايتمات والأسعار»
 // details = { itemId, itemName, companyId, changes: [{ field, from, to }] }
+// member_create = إدارة المكتب أنشأت حساب مندوب/مسوّق (company-members.create.js)
+// details = { targetUserId, kind, companies[], itemCount, province, subProvinces[], areaCount, managers[] }
 const ITEM_CHANGE_ACTIONS = new Set(['item_catalog_update', 'item_catalog_create']);
-const AREA_CHANGE_WHERE = { action: { in: ['rep_areas_update', 'rep_profile_update', ...ITEM_CHANGE_ACTIONS] } };
+const AREA_CHANGE_WHERE = { action: { in: ['rep_areas_update', 'rep_profile_update', 'member_create', ...ITEM_CHANGE_ACTIONS] } };
 
 export async function listAreaChanges(req, res) {
   try {
@@ -600,10 +602,21 @@ export async function listAreaChanges(req, res) {
         added:       Array.isArray(d.added)   ? d.added   : [],
         removed:     Array.isArray(d.removed) ? d.removed : [],
         provinceMaterialized: !!d.provinceMaterialized,
-        kind:        r.action === 'rep_profile_update' ? 'profile' : 'areas',
+        kind:        r.action === 'rep_profile_update' ? 'profile' : r.action === 'member_create' ? 'create' : 'areas',
         oldName:     d.oldName ?? null,
         newName:     d.newName ?? null,
         isActive:    typeof d.isActive === 'boolean' ? d.isActive : null,
+        ...(r.action === 'member_create' ? {
+          created: {
+            kind: d.kind === 'marketer' ? 'marketer' : 'scientific',
+            companies: Array.isArray(d.companies) ? d.companies : [],
+            itemCount: Number(d.itemCount) || 0,
+            province: d.province ?? null,
+            subProvinces: Array.isArray(d.subProvinces) ? d.subProvinces : [],
+            areaCount: Number(d.areaCount) || 0,
+            managers: Array.isArray(d.managers) ? d.managers : [],
+          },
+        } : {}),
       };
     });
 

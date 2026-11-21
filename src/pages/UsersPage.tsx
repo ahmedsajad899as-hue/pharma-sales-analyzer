@@ -1,8 +1,11 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import { useBackHandler } from '../hooks/useBackHandler';
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
 import ProvinceRepsToggle, { useProvinceRepScope } from '../components/ProvinceRepsToggle';
+
+// «إضافة مستخدم» لإدارة المكتب — تُحمَّل عند الفتح فقط (تسحب مكوّنات نموذج السوبر أدمن)
+const OfficeNewUserModal = lazy(() => import('../components/OfficeNewUserModal'));
 
 interface ScientificRep { id: number; name: string; repKind?: string | null; }
 
@@ -210,13 +213,16 @@ const ALL_ROLES: { value: string; label: string }[] = [
 type ModalType = 'add' | 'edit' | 'password' | null;
 
 export default function UsersPage() {
-  const { user: currentUser, token } = useAuth();
+  const { user: currentUser, token, hasFeature } = useAuth();
   const { t } = useLanguage();
   const authH = () => ({ Authorization: `Bearer ${token}` });
   // مدير الشركة و HR المكتب: عرض أعضاء الفريق + تعديل مناطقهم ضمن نطاقهم (company-members)
   // مدير المكتب / موظف المكتب / HR: نفس القائمة لكن مصفوفة حسب الشركة ← التيم ليدر ← المندوبين
   const isOfficeView = currentUser?.role === 'office_manager' || currentUser?.role === 'office_employee' || currentUser?.role === 'office_hr';
   const isCompanyManager = currentUser?.role === 'company_manager' || isOfficeView;
+  // إنشاء مندوب/مسوّق من إدارة المكتب — ميزة اشتراك يفعّلها السوبر أدمن (users_create)
+  const canCreateUsers = isOfficeView && hasFeature('users_create');
+  const [createOpen, setCreateOpen] = useState(false);
 
   const [users, setUsers]     = useState<User[]>([]);
   const [sciReps, setSciReps] = useState<ScientificRep[]>([]);
@@ -241,6 +247,7 @@ export default function UsersPage() {
 
   // Back button: close open modals in priority order
   useBackHandler([
+    [createOpen,                () => setCreateOpen(false)],
     [accountMember !== null,    () => setAccountMember(null)],
     [areasModalMember !== null, () => setAreasModalMember(null)],
     [modal !== null,            () => setModal(null)],
@@ -513,9 +520,18 @@ export default function UsersPage() {
   if (isCompanyManager) {
     return (
       <div className="page">
-        <div className="page-header" style={{ justifyContent: 'flex-end' }}>
+        <div className="page-header" style={{ justifyContent: 'flex-end', gap: 8 }}>
+          {canCreateUsers && (
+            <button onClick={() => setCreateOpen(true)} style={{ fontSize: 13, fontWeight: 700, padding: '6px 14px', background: '#0f172a', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer' }}>＋ إضافة مستخدم</button>
+          )}
           <button onClick={load} style={{ fontSize: 13, padding: '6px 14px', background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: 8, cursor: 'pointer' }}>🔄 تحديث</button>
         </div>
+
+        {createOpen && (
+          <Suspense fallback={null}>
+            <OfficeNewUserModal token={token} onClose={() => setCreateOpen(false)} onCreated={load} />
+          </Suspense>
+        )}
 
         {membersError && <div className="alert alert--error">{membersError}</div>}
 

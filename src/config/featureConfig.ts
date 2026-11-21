@@ -261,6 +261,9 @@ export const PAGE_CHILDREN: Record<string, FeatureNode[]> = {
     { key: 'sales_data_value',     label: 'عرض القيمة المالية',           icon: '💰', desc: 'زر تبديل عرض الكميات ↔ القيم المالية'                 },
     { key: 'sales_data_analysis',  label: 'تبويب التحليل',               icon: '📈', desc: 'تبويب التحليل البياني حسب المنطقة والمخزن'             },
   ],
+  'users': [
+    { key: 'users_create', label: 'إضافة مستخدمين', icon: '➕', desc: 'زر «إضافة مستخدم» لإدارة المكتب: إنشاء حساب مندوب علمي أو مسوّق بشركاته وايتماته ومناطقه ومديره — يُحفظ بنفس مسار السوبر أدمن فيظهر عنده وعند الجميع فوراً', onlyRoles: ['office_manager', 'office_hr', 'office_employee'] },
+  ],
 };
 
 // ميزات عامة غير مرتبطة بصفحة واحدة محددة (زر عائم، زر في تذييل الشريط الجانبي...)
@@ -345,6 +348,8 @@ export const OPT_IN_FEATURES: ReadonlySet<string> = new Set([
   'visits_dofied_pull',
   // ربط مجلد المبيعات في صفحة الرفع (2026-11-20)
   'sales_folder_link',
+  // إضافة مستخدمين من إدارة المكتب (2026-11-21)
+  'users_create',
 ]);
 
 interface FeaturePerms { disabledFeatures?: string[]; enabledFeatures?: string[] }
