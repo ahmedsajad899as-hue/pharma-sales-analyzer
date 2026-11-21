@@ -7,7 +7,9 @@
 // ════════════════════════════════════════════════════════════════════════════
 
 /** ميزات عادية تبقى مفعّلة. سجل الزيارة وخريطتها جزء من صفحة الكولات اليومية. */
-export const NEW_USER_KEPT_FEATURES = ['home_page', 'dashboard_page', 'call_log', 'daily_map'];
+// خانتا «لكوديشن/مذاخر» داخل «فايبر / واتساب» تبقيان مفعّلتين: اللوحة نفسها اشتراك
+// (rep_orders_viber_import)، وإطفاؤهما معاً يُخفيها حتى لو فُعّلت.
+export const NEW_USER_KEPT_FEATURES = ['home_page', 'dashboard_page', 'call_log', 'daily_map', 'rep_orders_viber_liq', 'rep_orders_viber_wh'];
 
 /** ميزات اشتراك (OPT_IN_FEATURES) تُفعَّل صراحةً؛ بقية ميزات الاشتراك مطفأة أصلاً. */
 export const NEW_USER_ENABLED_OPT_IN = ['rep_orders'];

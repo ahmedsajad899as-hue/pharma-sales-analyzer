@@ -30,6 +30,6 @@ assert.ok(NEW_USER_ENABLED_OPT_IN.every(k => optIn.has(k)));
 const perms = newUserPermissions();
 const isOn = (k) => !perms.disabledFeatures.includes(k) && (!optIn.has(k) || perms.enabledFeatures.includes(k));
 const on = [...allKeys].filter(isOn).sort();
-assert.deepEqual(on, ['call_log', 'daily_map', 'dashboard_page', 'home_page', 'rep_orders']);
+assert.deepEqual(on, ['call_log', 'daily_map', 'dashboard_page', 'home_page', 'rep_orders', 'rep_orders_viber_liq', 'rep_orders_viber_wh']);
 
 console.log(`✓ ${allKeys.size} مفتاحاً مصنَّفاً؛ المفعَّل لحساب جديد: ${on.join(', ')}`);

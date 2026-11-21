@@ -466,6 +466,11 @@ export default function RepOrdersPage() {
   const viberImport = hasFeature('rep_orders_viber_import');
   // سكرين شوت الطلبيات ← الذكاء الاصطناعي (تُطفأ وحدها من «المميزات»)
   const viberImages = viberImport && hasFeature('rep_orders_viber_images');
+  // خانتا الوجهة داخل اللوحة (تُطفأ كل واحدة من «المميزات»): واحدة فقط ⇒ كل الطلبيات لها؛
+  // كلتاهما مطفأتان ⇒ يختفي زر «فايبر / واتساب» (أزرار فواتير الفايبر تبقى)
+  const viberModes = ([['liq', 'rep_orders_viber_liq'], ['wh', 'rep_orders_viber_wh']] as const)
+    .filter(([, k]) => hasFeature(k)).map(([m]) => m);
+  const viberPanel = viberImport && viberModes.length > 0;
   const [showViber, setShowViber] = useState(false);
   // ما وصل بـ«مشاركة ← Ordine» ويُفتح مباشرة في لوحة الفايبر (نص رسالة، أو سكرين شوت)
   // fromShare: فُتحت بـ«مشاركة» من الفايبر/الواتساب ← بعد الحفظ يُغلق التطبيق ويعود المستخدم للمحادثة
@@ -564,7 +569,7 @@ export default function RepOrdersPage() {
       const text = (await (await cache.match(textKey))?.text()) ?? '';
       await caches.delete(SHARE_CACHE);
       if (!text.trim()) return;
-      if (viberImport) openViber({ text, fromShare: true });
+      if (viberPanel) openViber({ text, fromShare: true });
       else setNotice('لإدخال طلبية من نص مُشارَك فعّل ميزة «استيراد طلبيات الفايبر» من المميزات');
     })().catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -868,7 +873,7 @@ export default function RepOrdersPage() {
           <button className="ro-hero__btn ro-hide-sm" disabled={exporting || !orders.length} title="تصدير كل الطلبيات المعروضة بكل حالاتها إلى Excel" onClick={doExport}>
             <FileSpreadsheet size={15} /> <span className="ro-hide-sm">{exporting ? 'جارٍ التصدير…' : 'Excel'}</span>
           </button>
-          {viberImport && (
+          {viberPanel && (
             <button className="ro-hero__btn" onClick={() => setShowViber(true)} title="لصق رسائل كروب الفايبر أو سكرين شوت لها ← طلبيات جاهزة للإرسال">
               <ClipboardPaste size={15} /> <span>فايبر / واتساب</span>
             </button>
@@ -1030,7 +1035,7 @@ export default function RepOrdersPage() {
         <ViberImportPanel api={api} token={token} warehouses={warehouses} reps={assignableReps}
           // «إنشاء وإرسال» عبر البوت فقط إن كانت خانة «إرسال عبر البوت» مفعّلة — مطفأة = إنشاء فقط ثم إرسال يدوي
           canSend={canBotSend && viaBot}
-          initialText={viberInit?.text} initialImages={viberInit?.images} allowImages={viberImages}
+          initialText={viberInit?.text} initialImages={viberInit?.images} allowImages={viberImages} modes={viberModes}
           onClose={() => { setShowViber(false); setViberInit(null); }} onChanged={load}
           onFinished={(summary) => {
             const share = viberInit?.fromShare;
@@ -1043,7 +1048,7 @@ export default function RepOrdersPage() {
       )}
       {shared.length > 0 && (
         <SharedImagePicker api={api} images={shared} beginSend={canDispatch ? (o, wh) => beginSend([o], wh, true) : undefined}
-          onViber={viberImages ? () => {
+          onViber={viberImages && viberPanel ? () => {
             const files = shared.map((b, i) => new File([b], `shot-${i}.jpg`, { type: b.type || 'image/jpeg' }));
             clearShared(); openViber({ images: files, fromShare: true });
           } : undefined}

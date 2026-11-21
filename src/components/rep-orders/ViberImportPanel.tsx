@@ -244,7 +244,9 @@ function WarehouseSearch({ warehouses, placeholder, onPick }: { warehouses: Wh[]
   );
 }
 
-export default function ViberImportPanel({ api, token, warehouses, reps, canSend, initialText, initialImages, allowImages = true, onClose, onChanged, onFinished, botOrders, onBotSaved, onLegacy }: {
+export default function ViberImportPanel({ api, token, warehouses, reps, canSend, initialText, initialImages, allowImages = true, modes: modesProp, onClose, onChanged, onFinished, botOrders, onBotSaved, onLegacy }: {
+  /** الوجهات المسموحة من «المميزات» (rep_orders_viber_liq / _wh) — واحدة فقط ⇒ كل الطلبيات لها بلا اختيار */
+  modes?: readonly Mode[];
   /** مراجعة طلبيات البوت (صفحة رفع الملفات): نفس البطاقات، تُحفظ في اللكوديشن فقط */
   botOrders?: BotOrder[] | null;
   /** حُفظت طلبيات البوت: أرقامها (تُزال من الطابور)، وملف اللكوديشن، والخلاصة */
@@ -275,7 +277,9 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
   const [busy, setBusy] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   // مثبّت على اللكوديشن عند كل فتح (طلب صاحب المشروع) — لا يُتذكَّر آخر اختيار
-  const [mode, setMode] = useState<Mode>('liq');
+  // (وإن أُطفئت خانة اللكوديشن من «المميزات» فالمذاخر). مراجعة البوت لكوديشن دائماً.
+  const modes: readonly Mode[] = botOrders?.length || !modesProp?.length ? ['liq', 'wh'] : modesProp;
+  const [mode, setMode] = useState<Mode>(modes.includes('liq') ? 'liq' : 'wh');
   // الموبايل: نص الرسالة مطويّ لسطرين حتى يُضغط (كي تظهر البطاقة كلها بشاشة واحدة)
   const [openSrc, setOpenSrc] = useState<Set<string>>(new Set());
   const fileRef = useRef<HTMLInputElement>(null);
@@ -732,7 +736,7 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
           <span className="ro-spacer" />
           {isBot && onLegacy && <button className="vi-btn vi-btn--ghost" disabled={busy} onClick={onLegacy} title="نفس الطلبيات بجدول المراجعة القديم">الجدول</button>}
           {!isBot && <div className="vi-mode" role="radiogroup" aria-label="وجهة الطلبيات">
-            {([['liq', 'لكوديشن'], ['wh', 'مذاخر']] as const).map(([m, t]) => (
+            {([['liq', 'لكوديشن'], ['wh', 'مذاخر']] as const).filter(([m]) => modes.includes(m)).map(([m, t]) => (
               <button key={m} role="radio" aria-checked={mode === m} className={mode === m ? 'is-on' : ''} disabled={busy}
                 title={m === 'liq' ? 'تُحفظ مبيعاً في ملف اللكوديشن وتُحسب للمندوب' : 'تُنشأ طلبية مذخر في «طلبيات المذاخر» للإرسال'}
                 onClick={() => {
