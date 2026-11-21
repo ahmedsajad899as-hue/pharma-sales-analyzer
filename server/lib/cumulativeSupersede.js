@@ -30,11 +30,19 @@ import { UNDATED_CUTOFF } from './salesMonths.js';
 export const SAME_SERIES_MIN_COVERAGE = 0.5;
 export const SUPERSEDE_KINDS = ['changed', 'vanished', 'foreign'];
 
-/** أنواع السجلات التي تحسمها رفعة بنوعها: ملف المبيعات لا يمسّ الإرجاع والعكس. */
-export function recordTypesForUpload(fileType) {
-  if (fileType === 'returns') return ['return'];
-  if (fileType === 'auto') return ['sale', 'return'];
-  return ['sale'];
+/**
+ * أنواع السجلات التي تحسمها رفعة: ملف المبيعات لا يمسّ الإرجاع والعكس — إلا إن حمل الملف
+ * النوع الآخر فعلاً. ملف «مبيعات» فيه ورقة «ارجاع» (يقرؤها المحلّل إرجاعاً بإجبار اسم الورقة)
+ * يحسم إرجاع فترته أيضاً: SYSTEM SALE'S 21-11 رُفع «مبيعات» فبقيت 13 فاتورة إرجاع أُلغيت
+ * من التصدير الأحدث (36 مليون) ظاهرةً من رفعة 17/11.
+ * @param {string} fileType
+ * @param {{sales?:number, returns?:number}} [counts] عدد صفوف كل نوع في الرفعة
+ */
+export function recordTypesForUpload(fileType, counts = {}) {
+  const types = new Set(fileType === 'returns' ? ['return'] : fileType === 'auto' ? ['sale', 'return'] : ['sale']);
+  if (counts.sales > 0) types.add('sale');
+  if (counts.returns > 0) types.add('return');
+  return [...types];
 }
 
 /** من أول يوم إلى آخر يوم (UTC) في الرفعة؛ الصفوف بلا تاريخ خارجها. null = لا تواريخ. */
@@ -201,11 +209,11 @@ export function parseSupersedeKinds(v) {
  * وقت الحفظ: يُعيد الحساب على حالة الملف الآن، ويُطبّق الأقسام المختارة فقط إن لم يتجاوز
  * عددها ما وافق عليه المستخدم في المعاينة (max) — وإلا لا يُخفي شيئاً ويُبلّغ.
  */
-export async function applySupersede({ fileId, keySet, orders, dates, fileType, kinds, max, uploadName, uploadedBy }) {
+export async function applySupersede({ fileId, keySet, orders, dates, fileType, counts, kinds, max, uploadName, uploadedBy }) {
   if (!kinds.length) return null;
   const range = uploadDayRange(dates);
   if (!range) return { skipped: true, reason: 'no-dates', count: 0 };
-  const found = await findSupersededRows({ fileId, keySet, orders, range, recordTypes: recordTypesForUpload(fileType) });
+  const found = await findSupersededRows({ fileId, keySet, orders, range, recordTypes: recordTypesForUpload(fileType, counts) });
   const rows = kinds.flatMap(k => found.rows[k]);
   if (!rows.length) return { count: 0, batchId: null };
   if (!(Number(max) >= rows.length)) {

@@ -204,7 +204,8 @@ export async function previewParsedUpload({
     const range = uploadDayRange(allRows.map(r => r.date ?? null));
     if (range) {
       supersede = publicSummary(await findSupersededRows({
-        fileId: target.id, keySet: index.keySet, orders: index.orders, range, recordTypes: recordTypesForUpload(fileType),
+        fileId: target.id, keySet: index.keySet, orders: index.orders, range,
+        recordTypes: recordTypesForUpload(fileType, { sales: salesRows.length, returns: returnsRows.length }),
       }));
     }
   }

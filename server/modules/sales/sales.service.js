@@ -746,6 +746,7 @@ async function _finishProcessing({ salesRows, returnsRows, skippedRows, file, up
         superseded = await applySupersede({
           fileId: target.id, keySet: idx.keySet, orders: idx.orders,
           dates: [...salesRows, ...returnsRows].map(r => r.date ?? null), fileType,
+          counts: { sales: salesRows.length, returns: returnsRows.length },
           kinds: supersedeKinds, max: supersedeMax, uploadName: originalName, uploadedBy: uploadedBy || null,
         });
       } catch (e) {
