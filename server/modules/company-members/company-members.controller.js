@@ -6,6 +6,9 @@ import {
   resolveEffectiveAreas, resolveEffectiveAreaIds, userHasAllAreas, saveUserAreaAssignments,
 } from '../../lib/areaScope.js';
 import { syncOfficeScopedCompanies } from '../../lib/officeScope.js';
+import { loadSeatManagers } from '../../lib/provinceSeats.js';
+import { PHARMACY_KIND } from '../../lib/pharmacyRep.js';
+import { repTeamCompany } from '../province-teams/province-teams.rules.js';
 
 /** أدوار تشرف على شركات مكتبها كلها (رئيسية وثانوية بالتساوي)، لا على شركتها الرئيسية فقط. */
 const OFFICE_WIDE_ROLES = new Set(['office_manager', 'office_hr', 'office_employee']);
@@ -344,6 +347,44 @@ async function effectiveAreasByMember(members) {
   return out;
 }
 
+/**
+ * شركة تيم المندوب العلمي في فرق المحافظات — نفس repTeamCompany في «فرق المحافظات»:
+ * المشترك (يتبع مديرَي مقعدين أو أكثر) = «deva + osel». شركات الحساب الخام لا تصلح لهذا:
+ * ايتمات مدير المقعد موزعة على عدة شركات فتظهر عنده شركات لا تمثّل تيمه.
+ */
+async function provinceTeamCompanies(members) {
+  const reps = members.filter(m => m.role === 'scientific_rep' && m.linkedRep?.repKind !== PHARMACY_KIND);
+  if (!reps.length) return new Map();
+  const rows = await prisma.provinceRepAssignment.findMany({
+    where: { repUserId: { in: reps.map(r => r.id) }, isActive: true, team: { isActive: true } },
+    select: {
+      repUserId: true, companyId: true, allItems: true,
+      company: { select: { name: true } },
+      items: { select: { itemId: true } },
+      team: { select: { officeId: true } },
+    },
+  });
+  if (!rows.length) return new Map();
+  const seats = await loadSeatManagers([...new Set(rows.map(r => r.team.officeId))]);
+  const out = new Map();
+  for (const rep of reps) {
+    const own = rows.filter(r => r.repUserId === rep.id);
+    if (!own.length) continue;
+    const primaryIds = new Set(rep.companyAssignments.filter(c => c.isPrimary).map(c => c.company.id));
+    const officeId = own[0].team.officeId;
+    const name = repTeamCompany(
+      own.map(a => ({
+        companyId: a.companyId, companyName: a.company.name, allItems: a.allItems,
+        itemIds: a.items.map(i => i.itemId), isPrimary: primaryIds.has(a.companyId),
+      })),
+      rep.managersOfUser.map(x => x.managerId),
+      seats.filter(s => s.officeId === officeId),
+    );
+    if (name) out.set(rep.id, name);
+  }
+  return out;
+}
+
 /** GET /api/company-members — list all users in the manager's companies */
 export async function listCompanyMembers(req, res, next) {
   try {
@@ -390,9 +431,11 @@ export async function listCompanyMembers(req, res, next) {
       orderBy: { username: 'asc' },
     }), provinceByAreaName()]);
 
-    const [effective, provinceMembers, provIdsByMember, provLeaders, provRows] = await Promise.all([
+    const [effective, provinceMembers, provIdsByMember, provLeaders, provRows, teamCompanies] = await Promise.all([
       effectiveAreasByMember(members), provinceMemberUserIds(), provinceIdsByMember(), provinceLeaderIds(),
       prisma.province.findMany({ select: { id: true, name: true } }),
+      // للعرض فقط: فشلها لا يُسقط القائمة
+      provinceTeamCompanies(members).catch(e => { console.warn('[company-members] team companies:', e.message); return new Map(); }),
     ]);
     const provName = new Map(provRows.map(p => [p.id, p.name]));
     const data = members.map(m => ({
@@ -410,6 +453,7 @@ export async function listCompanyMembers(req, res, next) {
       // تيم ليدر المحافظة لا يُحسب لشركة: يُصنَّف بمحافظته، ومندوبوه من شركات مختلفة تحته.
       isProvinceLeader: provLeaders.has(m.id),
       provinces: [...(provIdsByMember.get(m.id) ?? [])].map(id => provName.get(id)).filter(Boolean),
+      teamCompany: teamCompanies.get(m.id) ?? null,
     }));
 
     res.json({ success: true, data, canEdit: !READ_ONLY_ROLES.has(req.user.role) });

@@ -66,6 +66,8 @@ interface CompanyMember {
   isProvinceMember?: boolean;
   isProvinceLeader?: boolean;
   provinces?: string[];
+  /** تيم المندوب في فرق المحافظات: «deva» أو للمشترك «deva + osel» */
+  teamCompany?: string | null;
 }
 
 interface AreaItem {
@@ -654,12 +656,15 @@ export default function UsersPage() {
                         )}
                         {/* عرض المحافظات: الأقسام بالمحافظة، فشركة المندوب العلمي تظهر بجانبه (قائد المحافظة لا شركة له) */}
                         {isOfficeView && onlyProvince && !isMarketerMember(member) && !member.isProvinceLeader && member.companies.length > 0 && (() => {
+                          // تيمه من فرق المحافظات (المشترك: «deva + osel»)، وإلا شركاته الرئيسية
                           const primary = member.companies.filter(c => c.isPrimary);
                           const shown = primary.length ? primary : member.companies;
+                          const label = member.teamCompany || shown.map(c => c.name).join(' + ');
+                          const shared = label.includes(' + ');
                           return (
-                            <span title={member.companies.map(c => c.name + (c.isPrimary ? ' (رئيسية)' : '')).join('\n')}
-                              style={{ fontSize: 11, fontWeight: 700, color: '#5b21b6', background: '#f5f3ff', padding: '3px 8px', borderRadius: 12 }}>
-                              🏢 {shown.length === 1 ? shown[0].name : `مشترك · ${shown.length} شركات`}
+                            <span title={(shared ? 'مندوب مشترك\n' : '') + 'شركات الحساب:\n' + member.companies.map(c => c.name + (c.isPrimary ? ' (رئيسية)' : '')).join('\n')}
+                              style={{ fontSize: 11, fontWeight: 700, color: shared ? '#9a3412' : '#5b21b6', background: shared ? '#ffedd5' : '#f5f3ff', padding: '3px 8px', borderRadius: 12, whiteSpace: 'nowrap' }}>
+                              {shared ? '🔗' : '🏢'} {label}
                             </span>
                           );
                         })()}
