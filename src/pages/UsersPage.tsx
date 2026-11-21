@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import { useBackHandler } from '../hooks/useBackHandler';
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
-import ProvinceRepsToggle, { useProvinceRepScope } from '../components/ProvinceRepsToggle';
+import { ProvinceScopeSwitch, useProvinceRepScope } from '../components/ProvinceRepsToggle';
 
 // «إضافة مستخدم» لإدارة المكتب — تُحمَّل عند الفتح فقط (تسحب مكوّنات نموذج السوبر أدمن)
 const OfficeNewUserModal = lazy(() => import('../components/OfficeNewUserModal'));
@@ -20,17 +20,17 @@ function KindFilterSwitch({ value, onChange, counts }: { value: KindFilter; onCh
     { v: 'all', label: 'الكل' }, { v: 'scientific', label: '🩺 العلميين' }, { v: 'marketer', label: '🏪 المسوقين' },
   ];
   return (
-    <div role="group" aria-label="نوع المندوبين" style={{ display: 'inline-flex', gap: 2, padding: 2, borderRadius: 999, border: '1.5px solid var(--c-border)', background: 'var(--c-bg)' }}>
+    <div role="group" aria-label="نوع المندوبين" style={{ display: 'inline-flex', gap: 2, padding: 1.5, borderRadius: 999, border: '1px solid var(--c-border)', background: 'var(--c-bg)' }}>
       {opts.map(o => {
         const on = value === o.v;
         return (
           <button key={o.v} type="button" aria-pressed={on} onClick={() => onChange(o.v)} style={{
-            display: 'inline-flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap', padding: '5px 12px', borderRadius: 999,
-            cursor: 'pointer', border: 'none', fontSize: 12.5, fontWeight: 700, fontFamily: 'inherit',
+            display: 'inline-flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap', padding: '2px 9px', borderRadius: 999,
+            cursor: 'pointer', border: 'none', fontSize: 11.5, fontWeight: 700, fontFamily: 'inherit',
             background: on ? 'var(--c-accent)' : 'transparent', color: on ? '#fff' : 'var(--c-text-secondary)',
           }}>
             {o.label}
-            <span style={{ fontSize: 10.5, fontWeight: 800, borderRadius: 999, padding: '0 6px', background: on ? 'rgba(255,255,255,.25)' : 'var(--c-border)', color: on ? '#fff' : 'var(--c-text-secondary)' }}>{counts[o.v]}</span>
+            <span style={{ fontSize: 9.5, fontWeight: 800, borderRadius: 999, padding: '0 5px', background: on ? 'rgba(255,255,255,.25)' : 'var(--c-border)', color: on ? '#fff' : 'var(--c-text-secondary)' }}>{counts[o.v]}</span>
           </button>
         );
       })}
@@ -562,11 +562,11 @@ export default function UsersPage() {
   if (isCompanyManager) {
     return (
       <div className="page">
-        <div className="page-header" style={{ justifyContent: 'flex-end', gap: 8 }}>
+        <div className="page-header" style={{ justifyContent: 'flex-end', gap: 6 }}>
           {canCreateUsers && (
-            <button onClick={() => setCreateOpen(true)} style={{ fontSize: 13, fontWeight: 700, padding: '6px 14px', background: '#0f172a', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer' }}>＋ إضافة مستخدم</button>
+            <button onClick={() => setCreateOpen(true)} style={{ fontSize: 11.5, fontWeight: 700, padding: '4px 10px', background: '#0f172a', color: '#fff', border: 'none', borderRadius: 7, cursor: 'pointer' }}>＋ إضافة مستخدم</button>
           )}
-          <button onClick={load} style={{ fontSize: 13, padding: '6px 14px', background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: 8, cursor: 'pointer' }}>🔄 تحديث</button>
+          <button onClick={load} style={{ fontSize: 11.5, padding: '4px 10px', background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: 7, cursor: 'pointer' }}>🔄 تحديث</button>
         </div>
 
         {createOpen && (
@@ -597,10 +597,10 @@ export default function UsersPage() {
                 value={memberSearch}
                 onChange={e => setMemberSearch(e.target.value)}
                 placeholder={isOfficeView ? "🔍 بحث باسم الموظف أو الشركة أو المنطقة..." : "🔍 بحث باسم الموظف أو المنطقة..."}
-                style={{ flex: '1 1 240px', padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: 10, fontSize: 13 }}
+                style={{ flex: '1 1 220px', padding: '5px 10px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 12 }}
               />
               {isOfficeView && <KindFilterSwitch value={kindFilter} onChange={setKindFilter} counts={kindCounts} />}
-              {isOfficeView && <ProvinceRepsToggle reps={officeFieldMembers} value={onlyProvince} onChange={setOnlyProvince} />}
+              {isOfficeView && <ProvinceScopeSwitch compact reps={officeFieldMembers} value={onlyProvince} onChange={setOnlyProvince} />}
               <span style={{ fontSize: 12, color: '#64748b' }}>{visibleMembers.length} موظف</span>
             </div>
             {(() => {
@@ -680,23 +680,23 @@ export default function UsersPage() {
                         )}
                       </div>
 
-                      <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                      <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
                         {member.areas.length > 0 && (
                           <button onClick={toggle} style={{
-                            padding: '6px 10px', fontSize: 12, fontWeight: 600, background: '#f8fafc', color: '#475569',
-                            border: '1px solid #e2e8f0', borderRadius: 8, cursor: 'pointer',
+                            padding: '3px 8px', fontSize: 11, fontWeight: 600, background: '#f8fafc', color: '#475569',
+                            border: '1px solid #e2e8f0', borderRadius: 6, cursor: 'pointer', whiteSpace: 'nowrap',
                           }}>{expanded ? '▴ إخفاء' : '▾ عرض'}</button>
                         )}
                         {canEditMembers && !(currentUser?.role === 'office_employee'
                           && ['office_manager', 'office_hr', 'office_employee', 'admin', 'super_admin'].includes(member.role)) && (
                           <>
                             <button onClick={() => openAccountModal(member)} style={{
-                              padding: '6px 12px', fontSize: 12, fontWeight: 700, background: '#f8fafc', color: '#334155',
-                              border: '1px solid #e2e8f0', borderRadius: 8, cursor: 'pointer', whiteSpace: 'nowrap',
+                              padding: '3px 8px', fontSize: 11, fontWeight: 700, background: '#f8fafc', color: '#334155',
+                              border: '1px solid #e2e8f0', borderRadius: 6, cursor: 'pointer', whiteSpace: 'nowrap',
                             }}>👤 تعديل الحساب</button>
                             <button onClick={() => openAreasModal(member)} style={{
-                              padding: '6px 12px', fontSize: 12, fontWeight: 700, background: '#eef2ff', color: '#4f46e5',
-                              border: '1px solid #c7d2fe', borderRadius: 8, cursor: 'pointer', whiteSpace: 'nowrap',
+                              padding: '3px 8px', fontSize: 11, fontWeight: 700, background: '#eef2ff', color: '#4f46e5',
+                              border: '1px solid #c7d2fe', borderRadius: 6, cursor: 'pointer', whiteSpace: 'nowrap',
                             }}>✏️ تعديل المناطق</button>
                           </>
                         )}

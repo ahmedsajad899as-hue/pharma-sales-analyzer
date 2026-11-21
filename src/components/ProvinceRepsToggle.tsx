@@ -29,26 +29,34 @@ export function useProvinceRepScope(pageKey: string, { persist = true }: { persi
 }
 
 /** زرّان متجاوران: بغداد | محافظات — يختفيان حين لا يوجد أي مندوب محافظة (ولم يكن مُفعّلاً). */
-export function ProvinceScopeSwitch({ reps, value, onChange }: {
+export function ProvinceScopeSwitch({ reps, value, onChange, compact = false }: {
   reps: object[];
   value: boolean;
   onChange: (v: boolean) => void;
+  /** حجم أصغر (صفحة المستخدمين) — مع عدد مندوبي بغداد أيضاً */
+  compact?: boolean;
 }) {
   if (!value && !hasProvinceReps(reps)) return null;
   const count = reps.filter(isProv).length;
   const btn = (active: boolean) => ({
-    display: 'inline-flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap' as const,
-    padding: '5px 14px', borderRadius: 999, cursor: 'pointer', border: 'none',
-    fontSize: 12.5, fontWeight: 700, fontFamily: 'inherit',
+    display: 'inline-flex', alignItems: 'center', gap: compact ? 4 : 5, whiteSpace: 'nowrap' as const,
+    padding: compact ? '2px 9px' : '5px 14px', borderRadius: 999, cursor: 'pointer', border: 'none',
+    fontSize: compact ? 11.5 : 12.5, fontWeight: 700, fontFamily: 'inherit',
     background: active ? 'var(--c-accent)' : 'transparent',
     color: active ? '#fff' : 'var(--c-text-secondary)',
   });
+  const badge = (active: boolean, n: number) => (
+    <span style={{ fontSize: compact ? 9.5 : 10.5, fontWeight: 800, borderRadius: 999, padding: compact ? '0 5px' : '0 6px', background: active ? 'rgba(255,255,255,.25)' : 'var(--c-border)', color: active ? '#fff' : 'var(--c-text-secondary)' }}>{n}</span>
+  );
   return (
-    <div role="group" aria-label="نطاق المندوبين" style={{ display: 'inline-flex', gap: 2, padding: 2, borderRadius: 999, border: '1.5px solid var(--c-border)', background: 'var(--c-bg)' }}>
-      <button type="button" aria-pressed={!value} style={btn(!value)} onClick={() => { if (value) onChange(false); }}>بغداد</button>
+    <div role="group" aria-label="نطاق المندوبين" style={{ display: 'inline-flex', gap: 2, padding: compact ? 1.5 : 2, borderRadius: 999, border: `${compact ? 1 : 1.5}px solid var(--c-border)`, background: 'var(--c-bg)' }}>
+      <button type="button" aria-pressed={!value} style={btn(!value)} onClick={() => { if (value) onChange(false); }}>
+        بغداد
+        {compact && badge(!value, reps.length - count)}
+      </button>
       <button type="button" aria-pressed={value} style={btn(value)} onClick={() => { if (!value) onChange(true); }}>
         محافظات
-        <span style={{ fontSize: 10.5, fontWeight: 800, borderRadius: 999, padding: '0 6px', background: value ? 'rgba(255,255,255,.25)' : 'var(--c-border)', color: value ? '#fff' : 'var(--c-text-secondary)' }}>{count}</span>
+        {badge(value, count)}
       </button>
     </div>
   );
