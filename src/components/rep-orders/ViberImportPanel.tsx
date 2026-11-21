@@ -49,7 +49,8 @@ interface Draft {
   notes: string; lines: DraftLine[]; repUserId: number | null; repName: string | null; repWhy: 'area' | 'leader' | 'sender' | 'learned' | 'guess' | 'bot' | null; repNote?: string | null;
   repCandidates: { id: number; name: string }[]; sourceHash: string | null;
   duplicateOf: { id: number; pharmacyName: string; createdAt: string; status: string } | null; dupInBatch: boolean; warnings: string[];
-  // الواجهة فقط
+  // الواجهة فقط — manual: بطاقة «كتابة يدوية» بلا رسالة (نفس الحقول والحفظ)
+  manual?: boolean;
   include: boolean; state?: 'saving' | 'done' | 'warn' | 'error'; result?: string;
 }
 interface Wh { id: number; name: string }
@@ -422,6 +423,21 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
     } catch (e: any) { setErr(e.message); } finally { setReading(n => n - 1); }
   }, [api, addDrafts, allowImages]);
 
+  /** «كتابة يدوية»: بطاقة فارغة بنفس حقول اللصق — المنطقة تختار المندوب، والحفظ بنفس المسار. */
+  const manualSeq = useRef(0);
+  const addManual = () => {
+    setErr(null);
+    const key = `m${Date.now()}-${++manualSeq.current}`;
+    setDrafts(ds => [{
+      key, source: 'manual', sourceText: '', sender: null, mentions: [], readBy: 'manual', manual: true,
+      pharmacyName: '', areaName: '', warehouseId: null, warehouseName: '', backupWarehouseIds: [], mentionedWarehouses: [],
+      writtenWarehouses: [], whText: '', notes: '',
+      lines: [{ itemId: null, itemName: '', writtenAs: '', quantity: 0, bonusQty: 0, matched: false, suggestions: [] }],
+      repUserId: null, repName: null, repWhy: null, repNote: null, repCandidates: [], sourceHash: null,
+      duplicateOf: null, dupInBatch: false, warnings: [], include: true,
+    }, ...ds]);
+  };
+
   // ما وصل بالمشاركة يُقرأ مرة واحدة عند الفتح
   const initDone = useRef(false);
   useEffect(() => {
@@ -574,7 +590,8 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
   // فحص التكرار فور ظهور البطاقات في وضع اللكوديشن (لا عند الحفظ فقط) — المكررة بثقة تُلغى من التحديد
   useEffect(() => {
     if (mode !== 'liq') return;
-    const todo = drafts.filter(d => !d.dupChecked && !d.state && d.lines.some(l => l.itemName.trim() && l.quantity > 0));
+    // اليدوية تُفحص عند الحفظ فقط — أثناء الكتابة بياناتها ناقصة
+    const todo = drafts.filter(d => !d.manual && !d.dupChecked && !d.state && d.lines.some(l => l.itemName.trim() && l.quantity > 0));
     if (!todo.length) return;
     const keys = new Set(todo.map(d => d.key));
     setDrafts(ds => ds.map(d => (keys.has(d.key) ? { ...d, dupChecked: true } : d)));
@@ -742,6 +759,7 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
             <div className="vi-drop__row">
               <textarea ref={captureRef} className="form-input vi-capture" rows={1} placeholder="الصق هنا…" value="" onChange={() => {}} />
               <button className="vi-btn" onClick={pasteFromClipboard} title="لصق من الحافظة"><ClipboardPaste size={14} /> لصق</button>
+              <button className="vi-btn" onClick={addManual} title="إدخال طلبية بالكتابة بنفس الحقول"><Pencil size={14} /> كتابة يدوية</button>
               {allowImages && <>
                 <button className="vi-btn" onClick={() => fileRef.current?.click()} title="سكرين شوت"><ImageIcon size={14} /> صور</button>
                 <input ref={fileRef} type="file" accept="image/*" multiple hidden onChange={e => { readImages([...(e.target.files ?? [])]); e.target.value = ''; }} />
@@ -768,6 +786,7 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
                   {d.duplicateOf && <span className="vi-badge vi-badge--dup">⚠️ مكررة مع #{d.duplicateOf.id}</span>}
                   {d.dupInBatch && !d.duplicateOf && <span className="vi-badge vi-badge--dup">⚠️ مكررة في الدفعة</span>}
                   {d.readBy === 'ai' && <span className="vi-badge">🤖 قُرئت بالذكاء — راجعها</span>}
+                  {d.manual && <span className="vi-badge">✍️ يدوية</span>}
                   {mode === 'liq' && d.liqDup && (
                     <span className="vi-badge vi-badge--dup" title={d.liqDup.text}>⚠️ {d.liqDup.level === 'possible' ? 'ربما مكررة' : 'مكررة'} باللكوديشن</span>
                   )}
@@ -776,8 +795,8 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
                 </div>
 
                 <div className="vi-card__body">
-                  {/* نص الرسالة الأصلي ظاهر دائماً للمقارنة */}
-                  <div className={`vi-src ${openSrc.has(d.key) ? 'is-open' : ''}`}
+                  {/* نص الرسالة الأصلي ظاهر دائماً للمقارنة (البطاقة اليدوية بلا رسالة) */}
+                  {!d.manual && <div className={`vi-src ${openSrc.has(d.key) ? 'is-open' : ''}`}
                     onClick={() => setOpenSrc(s => { const n = new Set(s); if (n.has(d.key)) n.delete(d.key); else n.add(d.key); return n; })}>
                     <div className="vi-src__head"><MessageSquareText size={12} /> الرسالة{d.sender ? ` — ${d.sender}` : ''}
                       <span className="vi-src__more">{openSrc.has(d.key) ? 'طيّ' : 'عرض كاملة'}</span>
@@ -790,12 +809,12 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
                       </div>
                     )}
                     {d.sourceText ? <pre dir="auto">{d.sourceText}</pre> : !d.bot ? null : <pre className="vi-src__none">صورة بلا نص</pre>}
-                  </div>
+                  </div>}
 
                   <div className="vi-form">
                     <div className="vi-fields">
                       <label className="vi-f vi-f--ph"><span>الصيدلية</span>
-                        <input className="form-input" value={d.pharmacyName} disabled={locked} placeholder="اسم الصيدلية *" onChange={e => patch(d.key, { pharmacyName: e.target.value })} />
+                        <input className="form-input" value={d.pharmacyName} disabled={locked} placeholder="اسم الصيدلية *" autoFocus={d.manual && !d.pharmacyName} onChange={e => patch(d.key, { pharmacyName: e.target.value })} />
                       </label>
                       <label className="vi-f"><span>المنطقة</span>
                         <AreaSearch areas={areaOpts} value={d.areaName} disabled={locked}
