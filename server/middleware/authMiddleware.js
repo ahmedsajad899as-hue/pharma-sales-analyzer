@@ -1,4 +1,5 @@
 import jwt from 'jsonwebtoken';
+import prisma from '../lib/prisma.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'pharma-sales-secret-key-2026';
 
@@ -17,10 +18,29 @@ export function requireAuth(req, res, next) {
     // الحساب المعطَّل يُرفض في /api/auth/me.
     const payload = jwt.verify(token, JWT_SECRET, { ignoreExpiration: true });
     req.user = payload; // { id, username, role }
+    // التوكن لا ينتهي، فالدور المختوم فيه يبقى قديماً بعد تغيير دور الحساب من السوبر أدمن
+    // (موظف مكتب بتوكن «مدير شركة» رأى قائمة مستخدمين فارغة). الدور الحالي من القاعدة.
+    if (payload?.role && Number.isInteger(payload.id)) {
+      return currentRole(payload.id).then(role => {
+        if (role && role !== payload.role) req.user = { ...payload, role };
+        next();
+      }, () => next());
+    }
     next();
   } catch {
     return res.status(401).json({ error: 'الجلسة منتهية. يرجى تسجيل الدخول مجدداً.' });
   }
+}
+
+const ROLE_TTL_MS = 60_000;
+const roleCache = new Map(); // userId → { role, at }
+async function currentRole(userId) {
+  const hit = roleCache.get(userId);
+  if (hit && Date.now() - hit.at < ROLE_TTL_MS) return hit.role;
+  const row = await prisma.user.findUnique({ where: { id: userId }, select: { role: true } });
+  const role = row?.role ?? null;
+  roleCache.set(userId, { role, at: Date.now() });
+  return role;
 }
 
 /**
