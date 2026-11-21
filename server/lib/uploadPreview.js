@@ -39,13 +39,13 @@ const NEW_ID = 'new';
  * قراءة فقط لما يعيده findOrCreateItem (sales.repository.js) دون إنشاء.
  * @returns {Promise<number|string>} المعرّف، أو NEW_ID إن كان سيُنشأ.
  */
-async function findExistingItemId(name, userId, sciCompanyIds, ctx) {
+async function findExistingItemId(name, userId, sciCompanyIds, ctx, loadUserItems) {
   const normalized = normalizeArabic(name);
   if (sciCompanyIds.length > 0) {
     const r = await resolveItemName(name, ctx);
     if (r.canonicalItem && ['alias', 'exact', 'high'].includes(r.confidence)) return r.canonicalItem.id;
   } else if (userId) {
-    const userItems = await prisma.item.findMany({ where: { userId, isTemp: false }, select: { id: true, name: true } });
+    const userItems = await loadUserItems();
     const found = userItems.find(i => normalizeArabic(i.name) === normalized);
     if (found) return found.id;
   }
@@ -115,23 +115,33 @@ export async function previewParsedUpload({
   const sciCompanyIds = userId
     ? (await prisma.userCompanyAssignment.findMany({ where: { userId }, select: { companyId: true } })).map(c => c.companyId)
     : [];
-  let itemCtx = null;
+  // ⚠️ الذاكرة تحفظ الـPromise لا القيمة، والصفوف تُعالَج بالتتابع: ملف ميركاتو لا يحمل عموداً
+  // تعرفه البصمة للايتم («اسم المادة بالمكتب») فيحتاج كل صف هذا البديل. مع Promise.all وذاكرة
+  // قيم كان كل صف من ~1000 يرى الذاكرة فارغة فيحمّل الكتالوج كاملاً لوحده (3 استعلامات)،
+  // فيختنق تجمّع الاتصالات (3 اتصالات) وتفشل المعاينة P2024 «تعذّر فحص الملف» (2026-11-21).
+  const once = (fn) => { let p = null; return () => (p ??= fn()); };
+  const itemCtxOf = once(() => loadResolutionContext({ scientificCompanyIds: sciCompanyIds, userId }));
+  const userItemsOf = once(() => prisma.item.findMany({ where: { userId, isTemp: false }, select: { id: true, name: true } }));
   const itemIdCache = new Map();
   const customerIdCache = new Map();
-  const itemIdOf = async (name) => {
+  const itemIdOf = (name) => {
     const key = normalizeAr(name || 'غير محدد');
     if (!itemIdCache.has(key)) {
-      if (!itemCtx && sciCompanyIds.length) itemCtx = await loadResolutionContext({ scientificCompanyIds: sciCompanyIds, userId });
-      itemIdCache.set(key, userId ? await findExistingItemId(key, userId, sciCompanyIds, itemCtx) : NEW_ID);
+      itemIdCache.set(key, (async () => {
+        if (!userId) return NEW_ID;
+        const ctx = sciCompanyIds.length ? await itemCtxOf() : null;
+        return findExistingItemId(key, userId, sciCompanyIds, ctx, userItemsOf);
+      })());
     }
     return itemIdCache.get(key);
   };
-  const customerIdOf = async (name) => {
+  const customerIdOf = (name) => {
     if (!name) return null;
     const key = normalizeAr(name);
     if (!customerIdCache.has(key)) {
-      const c = userId ? await prisma.customer.findUnique({ where: { name_userId: { name: key, userId } }, select: { id: true } }) : null;
-      customerIdCache.set(key, c?.id ?? NEW_ID);
+      customerIdCache.set(key, userId
+        ? prisma.customer.findUnique({ where: { name_userId: { name: key, userId } }, select: { id: true } }).then(c => c?.id ?? NEW_ID)
+        : Promise.resolve(NEW_ID));
     }
     return customerIdCache.get(key);
   };
@@ -148,8 +158,10 @@ export async function previewParsedUpload({
   };
 
   // نفس ترتيب appendRowsToCumulative: مبيعات ثم إرجاع، بعدّاد واحد (uploadIndex).
-  const saleKeyRows = await Promise.all(salesRows.map(r => toKeyRow(r, 'sale')));
-  const returnKeyRows = await Promise.all(returnsRows.map(r => toKeyRow(r, 'return')));
+  const saleKeyRows = [];
+  for (const r of salesRows) saleKeyRows.push(await toKeyRow(r, 'sale'));
+  const returnKeyRows = [];
+  for (const r of returnsRows) returnKeyRows.push(await toKeyRow(r, 'return'));
   const index = uploadIndex(saleKeyRows, returnKeyRows);
   const saleKeys = index.keys.slice(0, salesRows.length);
   const returnKeys = index.keys.slice(salesRows.length);
