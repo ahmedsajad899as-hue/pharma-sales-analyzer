@@ -323,5 +323,37 @@ check('منطقة الموديل غير المذكورة في سطر المذخ�
   check('«10 ق Amikavir 5 amp» حجم العبوة يبقى بالاسم', parseItemLine('10 ق Amikavir 5 amp'), { name: 'Amikavir 5 amp', quantity: 10, bonus: null });
 }
 
+// 2026-11-21: الاسم العربي ← ايتم الكتالوج اللاتيني بهيكل الحروف الساكنة (كروب ميسان).
+{
+  const { arabicSkeleton, latinSkeletons } = await import('../server/lib/drugSkeleton.js');
+  check('هيكل «ديتركس» = DTRKS', arabicSkeleton('ديتركس'), 'DTRKS');
+  check('«daytrix» يحوي DTRKS (x = كس)', latinSkeletons('daytrix').has('DTRKS'), true);
+  check('«sycocetam» = SKSTM (c قبل e = س)', latinSkeletons('sycocetam').has('SKSTM'), true);
+  check('«gerolin»: g قبل e = ج', latinSkeletons('gerolin').has(arabicSkeleton('جيرولين')), true);
+  const cat = [
+    { id: 1, name: 'DAYTRIX ( CEFTRIAXONE ) 1G IM' }, { id: 2, name: 'DAYTRIX ( CEFTRIAXONE ) 1G IV' },
+    { id: 3, name: 'SYCOCETAM SYRUP' }, { id: 4, name: 'SYCOCETAM 500MG TAB' },
+    { id: 5, name: 'TINTEEZ 10MG TAB' }, { id: 6, name: 'GEROLIN 20 CAP' },
+    { id: 7, name: 'Zantac 150mg' }, { id: 8, name: 'Panadol extra' }, { id: 9, name: 'Rosuvastatin 10mg' },
+  ];
+  const link = (n, c = cat) => { const r = brandDoseFallback(n, c); return r?.confidence === 'high' ? r.canonicalItem.id : null; };
+  check('«ديتركس iv» ← DAYTRIX IV', link('ديتركس iv'), 2);
+  check('«ديتركس im» ← DAYTRIX IM', link('ديتركس im'), 1);
+  check('«ديتركس» بلا طريقة إعطاء ⇒ لا ربط (IM أو IV)', link('ديتركس'), null);
+  check('«ديتركس» بلا ربط لكن باقتراحين', brandDoseFallback('ديتركس', cat)?.suggestions?.map(s => s.id), [1, 2]);
+  check('«سيكوسيتام شراب» ← SYCOCETAM SYRUP', link('سيكوسيتام شراب'), 3);
+  check('«شراب سيكوسيتام» (الشكل أولاً)', link('شراب سيكوسيتام'), 3);
+  check('«تينتيز» ← TINTEEZ', link('تينتيز'), 5);
+  check('«جيرولين» ← GEROLIN', link('جيرولين'), 6);
+  check('«زنتاك» ← Zantac', link('زنتاك'), 7);
+  check('«بانادول» ← Panadol', link('بانادول'), 8);
+  check('«روزوفاستاتين» (s بين صائتين = ز)', link('روزوفاستاتين'), 9);
+  check('علامتان لاتينيتان بنفس الهيكل ⇒ لا ربط', link('ديتركس iv', [...cat, { id: 10, name: 'DETRAX 5MG' }]), null);
+  check('فرق حرف ⇒ اقتراح بلا ربط', [link('سيكوسيتان'), brandDoseFallback('سيكوسيتان', cat)?.suggestions?.[0]?.id], [null, 3]);
+  check('كلمة عربية قصيرة «النور» ⇒ لا شيء', brandDoseFallback('النور', cat), null);
+  check('اللاتيني «Daytrix iv» يُحسم بطريقة الإعطاء أيضاً', link('Daytrix iv'), 2);
+  check('«Daytrix iv» لا يُربط بـIM وحده', link('Daytrix iv', [cat[0]]), null);
+}
+
 console.log(failed ? `\n✗ ${failed} فشل` : '\n✓ كلها ناجحة');
 process.exit(failed ? 1 : 0);

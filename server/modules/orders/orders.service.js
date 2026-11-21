@@ -20,7 +20,8 @@ import { cleanPharmacyName } from '../../lib/surveyPharmacies.js';
 import { matchInvoiceCustomers } from '../../lib/invoiceCustomerMatch.js';
 import { REP_ROLES } from '../../lib/areaScope.js';
 import { isManagementRepRecord, candidateOwnsItem, candidateHoldsItem, provinceIdByNameKey, rowCoverage, candidateCoversRow, pickRepOrLeader } from '../../lib/repGuessRules.js';
-import { similarity } from '../../lib/fuzzyMatch.js';
+import { similarity, routesOf, hasDifferentRoutes } from '../../lib/fuzzyMatch.js';
+import { arabicBrandWord, crossScriptFamily } from '../../lib/drugSkeleton.js';
 import { applyTextParse, TEXT_PARSE_VERSION } from './order-extract.js';
 import { fillRepFromSenderName, fillAreaFromGroup, fillAreaFromRep } from './group-context.js';
 import { loadItemOwnerManagers } from '../../lib/itemOwnerManager.js';
@@ -144,13 +145,30 @@ const formOf = (s) => {
  * نقي — exported للاختبار.
  */
 export function brandDoseFallback(name, catalog) {
+  if (!Array.isArray(catalog)) return null;
   const brand = brandWord(name);
-  if (brand.length < 4 || !Array.isArray(catalog)) return null;
-  const family = catalog.filter(c => {
+  let family = brand.length < 4 ? [] : catalog.filter(c => {
     const b = brandWord(c.name);
     return b === brand || (b.length >= 4 && similarity(b, brand) >= 0.75);
   });
-  if (!family.length) return null;
+  // اسم عربي والكتالوج لاتيني («ديتركس iv» ← DAYTRIX، كروب ميسان 2026-11-21): هيكل
+  // الحروف الساكنة. يُربط فقط إن طابق علامةً لاتينية **واحدة** تماماً — علامتان بنفس
+  // الهيكل، أو فرق حرف، = اقتراحات بلا ربط.
+  if (!family.length) {
+    const arBrand = arabicBrandWord(name);
+    if (!arBrand) return null;
+    const { exact, brands, near } = crossScriptFamily(arBrand, catalog, brandWord);
+    const sug = (list, sim) => list.slice(0, 8).map(c => ({ id: c.id, name: c.name, sim }));
+    if (!exact.length) {
+      return near.length
+        ? { canonicalItem: null, confidence: 'medium', suggestions: sug(near, 0.4), candidates: [], family: [], via: 'arabic-near' }
+        : null;
+    }
+    if (brands.size > 1) {
+      return { canonicalItem: null, confidence: 'medium', suggestions: sug(exact, 0.5), candidates: exact, family: exact, via: 'arabic' };
+    }
+    family = exact;
+  }
   const suggestions = family.map(c => ({ id: c.id, name: c.name, sim: 0.5 }));
 
   // رقم يحمله **كل** أفراد العائلة جزءٌ من اسم العلامة («DEVIT 3»، «DEVIT-3») — لا جرعة.
@@ -169,6 +187,10 @@ export function brandDoseFallback(name, catalog) {
   // يحسم ما بقي ملتبساً بعد الجرعة.
   const f = formOf(name);
   if (hits.length > 1 && f >= 0) hits = hits.filter(c => formOf(c.name) === f);
+  // طريقة الإعطاء المكتوبة («Daytrix iv»/«ديتركس iv») تُسقط ما يحمل طريقة أخرى (IM).
+  // ما لا يحمل طريقة إعطاء يبقى — قد يكون أياً منهما.
+  const nameKey = normalizeItemKey(name);
+  if (routesOf(nameKey).size) hits = hits.filter(c => !hasDifferentRoutes(nameKey, normalizeItemKey(c.name)));
   // عدد العبوة المكتوب («Amikavir 5 amp») يحسم بين أحجام نفس الجرعة — فقط إن طابق أحدها.
   const packs = packCounts(name);
   if (hits.length > 1 && packs.length) {
