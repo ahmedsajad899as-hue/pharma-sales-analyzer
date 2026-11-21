@@ -113,6 +113,8 @@
 /* البحث الذكي في الكتالوج */
 .vi-isearch { position: relative; min-width: 0; }
 .vi-isearch__list { position: absolute; top: calc(100% + 3px); inset-inline: 0; z-index: 30; background: var(--c-surface); border: 1px solid var(--c-border); border-radius: 9px; box-shadow: 0 10px 24px rgba(0, 0, 0, .15); max-height: 240px; overflow-y: auto; min-width: 220px; }
+/* داخل portal على body بموضع ثابت (SuggestList) — فوق نافذة اللوحة ولا يُقصّ */
+.vi-isearch__list.is-floating { top: auto; inset-inline: auto; z-index: 3200; min-width: 0; max-height: none; }
 .vi-isearch__list button { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; width: 100%; border: 0; border-bottom: 1px solid var(--c-border-light); background: none; padding: 6px 10px; font: inherit; text-align: start; cursor: pointer; color: var(--c-text-primary); }
 .vi-isearch__list button:hover { background: var(--c-accent-light); }
 .vi-isearch__list b { font-size: 12.5px; }

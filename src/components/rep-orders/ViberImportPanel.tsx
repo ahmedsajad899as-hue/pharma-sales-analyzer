@@ -147,26 +147,56 @@ export function searchCatalog(items: CatItem[], q: string, limit = 8): CatItem[]
   return out.sort((a, b) => b[0] - a[0] || a[1].name.length - b[1].name.length).slice(0, limit).map(x => x[1]);
 }
 
+/**
+ * قائمة الاقتراحات فوق كل شيء (portal بموضع ثابت): البطاقة overflow:hidden وجسم اللوحة
+ * يتمرّر، فالقائمة المطلقة داخلها كانت تُقصّ أسفل البطاقة. تنقلب للأعلى إن لم يكفِ ما تحت الخانة.
+ */
+function SuggestList({ anchor, children }: { anchor: React.RefObject<HTMLElement>; children: React.ReactNode }) {
+  const [pos, setPos] = useState<React.CSSProperties | null>(null);
+  useEffect(() => {
+    const place = () => {
+      const el = anchor.current;
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      const below = window.innerHeight - r.bottom - 8, above = r.top - 8;
+      const up = below < 200 && above > below;
+      const maxHeight = Math.max(120, Math.min(280, up ? above : below));
+      const width = Math.max(r.width, 240);
+      // RTL: حافة الخانة اليمنى هي البداية
+      const right = Math.max(4, window.innerWidth - r.right);
+      setPos({ position: 'fixed', right, width: Math.min(width, window.innerWidth - right - 4), maxHeight,
+        ...(up ? { bottom: window.innerHeight - r.top + 3 } : { top: r.bottom + 3 }) });
+    };
+    place();
+    window.addEventListener('scroll', place, true);
+    window.addEventListener('resize', place);
+    return () => { window.removeEventListener('scroll', place, true); window.removeEventListener('resize', place); };
+  }, [anchor]);
+  if (!pos) return null;
+  return createPortal(<div className="vi-isearch__list is-floating" dir="rtl" style={pos}>{children}</div>, document.body);
+}
+
 function ItemSearch({ catalog, value, autoFocus, onText, onPick }: {
   catalog: CatItem[]; value: string; autoFocus?: boolean;
   onText: (v: string) => void; onPick: (it: CatItem) => void;
 }) {
   const [open, setOpen] = useState(Boolean(autoFocus));
+  const box = useRef<HTMLDivElement>(null);
   const results = useMemo(() => searchCatalog(catalog, value), [catalog, value]);
   return (
-    <div className="vi-isearch">
+    <div className="vi-isearch" ref={box}>
       <input className="form-input vi-line__input" value={value} autoFocus={autoFocus} placeholder="اكتب اسم الصنف…"
         onChange={e => { onText(e.target.value); setOpen(true); }}
         onFocus={() => setOpen(true)} onBlur={() => setTimeout(() => setOpen(false), 150)} />
       {open && results.length > 0 && (
-        <div className="vi-isearch__list">
+        <SuggestList anchor={box}>
           {results.map(it => (
             <button key={it.id} type="button" onMouseDown={e => e.preventDefault()} onClick={() => { onPick(it); setOpen(false); }}>
               <b>{it.name}</b>
               <small>{[catCompany(it), fmtPrice(catPrice(it))].filter(Boolean).join(' · ')}</small>
             </button>
           ))}
-        </div>
+        </SuggestList>
       )}
     </div>
   );
@@ -193,8 +223,9 @@ function AreaSearch({ areas, value, disabled, onText, onCommit }: {
     return hit.sort((a, b) => Number(b.covered) - Number(a.covered) || Number(b.k.startsWith(toks[0])) - Number(a.k.startsWith(toks[0]))).slice(0, 8);
   }, [areas, value]);
   const pick = (a: AreaOpt) => { const name = a.canon || a.name; onText(name); typedAt.current = name; setOpen(false); onCommit(name); };
+  const box = useRef<HTMLDivElement>(null);
   return (
-    <div className="vi-isearch">
+    <div className="vi-isearch" ref={box}>
       <input className="form-input" value={value} disabled={disabled} placeholder="المنطقة"
         onChange={e => { onText(e.target.value); setOpen(true); }}
         onFocus={() => { typedAt.current = value; setOpen(true); }}
@@ -204,14 +235,14 @@ function AreaSearch({ areas, value, disabled, onText, onCommit }: {
           typedAt.current = null;
         }, 150)} />
       {open && results.length > 0 && (
-        <div className="vi-isearch__list">
+        <SuggestList anchor={box}>
           {results.map(a => (
             <button key={a.k} type="button" onMouseDown={e => e.preventDefault()} onClick={() => pick(a)}>
               <b>{a.name}</b>
               {(a.canon || a.covered) && <small>{[a.canon ? `مدموجة تحت ${a.canon}` : '', a.covered ? 'لها مندوب بفريقك' : ''].filter(Boolean).join(' · ')}</small>}
             </button>
           ))}
-        </div>
+        </SuggestList>
       )}
     </div>
   );
@@ -226,19 +257,20 @@ function WarehouseSearch({ warehouses, placeholder, onPick }: { warehouses: Wh[]
     const list = k ? warehouses.filter(w => { const n = sKey(w.name); return k.split(' ').every(t => n.includes(t) || n.replace(/ /g, '').includes(t)); }) : warehouses;
     return list.slice(0, 30);
   }, [warehouses, q]);
+  const box = useRef<HTMLDivElement>(null);
   return (
-    <div className="vi-isearch">
+    <div className="vi-isearch" ref={box}>
       <input className="form-input vi-wh-add" value={q} placeholder={placeholder}
         onChange={e => { setQ(e.target.value); setOpen(true); }}
         onFocus={() => setOpen(true)} onBlur={() => setTimeout(() => setOpen(false), 150)} />
       {open && results.length > 0 && (
-        <div className="vi-isearch__list">
+        <SuggestList anchor={box}>
           {results.map(w => (
             <button key={w.id} type="button" onMouseDown={e => e.preventDefault()} onClick={() => { onPick(w); setQ(''); setOpen(false); }}>
               <b>{w.name}</b>
             </button>
           ))}
-        </div>
+        </SuggestList>
       )}
     </div>
   );
