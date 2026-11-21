@@ -65,6 +65,12 @@ interface CatItem { id: number; name: string; price?: number | null; warehousePr
  */
 type Mode = 'liq' | 'wh';
 
+/** قائمة خانة المندوب: auto = العلميون + المسوقون مع الاختيار بالمنطقة؛ mkt = المسوقون فقط (يدوي)؛ sci = العلميون فقط. */
+type RepKind = 'auto' | 'mkt' | 'sci';
+const REP_KIND_KEY = 'vi-rep-kind';
+const REP_KIND_NEXT: Record<RepKind, RepKind> = { auto: 'mkt', mkt: 'sci', sci: 'auto' };
+const REP_KIND_LABEL: Record<RepKind, string> = { auto: 'تلقائي', mkt: 'مسوقين', sci: 'علميين' };
+
 /** اسم مندوب للمطابقة: بلا «/ المنطقة ph»، وبلا همزات وتاء مربوطة ومسافات. */
 const repKey = (s: string) => String(s ?? '').split('/')[0].replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي').replace(/\s+/g, '').toLowerCase();
 const numOf = (v: unknown) => { const n = Number(String(v ?? '').replace(/,/g, '')); return Number.isFinite(n) ? n : 0; };
@@ -303,6 +309,14 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
 }) {
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [team, setTeam] = useState<Rep[]>([]);
+  // مسوقو الفريق (اختيار يدوي فقط) وزر نوع قائمة المندوبين: تلقائي ← مسوقين ← علميين،
+  // يُحفظ في المتصفح ويبقى حتى يغيّره المستخدم
+  const [marketers, setMarketers] = useState<Rep[]>([]);
+  const [repKind, setRepKindState] = useState<RepKind>(() => {
+    try { const v = localStorage.getItem(REP_KIND_KEY); return v === 'mkt' || v === 'sci' ? v : 'auto'; } catch { return 'auto'; }
+  });
+  const repKindRef = useRef(repKind);
+  repKindRef.current = repKind;
   const [catalog, setCatalog] = useState<CatItem[]>([]);
   const [reading, setReading] = useState(0);
   const [err, setErr] = useState<string | null>(null);
@@ -335,9 +349,10 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
     (async () => {
       let teamList: Rep[] = [];
       try {
-        const r = await api<{ areas: AreaOpt[]; team?: Rep[] }>('/import/areas');
+        const r = await api<{ areas: AreaOpt[]; team?: Rep[]; marketers?: Rep[] }>('/import/areas');
         if (!alive) return;
         setAreaOpts((r.areas ?? []).map(a => ({ ...a, k: sKey(a.name) })));
+        setMarketers(r.marketers ?? []);
         teamList = r.team ?? [];
         if (teamList.length) setTeam(prev => [...prev, ...teamList.filter(x => !prev.some(p => p.id === x.id))]);
       } catch { /* الاقتراحات ليست شرطاً */ }
@@ -403,7 +418,9 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
         body: JSON.stringify({ area, itemIds: d.lines.map(l => l.itemId).filter(Boolean), sender: d.sender }),
       });
       if (r.rep) setTeam(prev => (prev.some(p => p.id === r.rep!.id) ? prev : [...prev, r.rep!]));
-      setDrafts(ds => ds.map(x => (x.key !== key ? x : {
+      // «مسوقين»: الاختيار بالمنطقة للعلميين فقط ⇒ لا يُغيَّر المندوب، المستخدم يختار
+      const manualOnly = repKindRef.current === 'mkt';
+      setDrafts(ds => ds.map(x => (x.key !== key ? x : manualOnly ? { ...x, areaName: r.area || area } : {
         ...x,
         areaName: r.area || area,
         repCandidates: r.repCandidates ?? [],
@@ -417,6 +434,22 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
 
   // المندوبون = علميّو فريق صاحب الحساب كما أعادهم الخادم (بلا مسوقين)؛ قائمة الصفحة احتياط فقط
   const repOptions = team.length ? team : reps;
+  const allReps = [...repOptions, ...marketers.filter(m => !repOptions.some(r => r.id === m.id))];
+  const mktIds = new Set(marketers.map(m => m.id));
+  /** المندوب المختار ليس من القائمة الظاهرة للنوع ⇒ يُمسح (لا يُحفظ باسم مخفي). */
+  const outOfKind = (id: number | null, kind: RepKind) => id != null && (kind === 'mkt' ? !mktIds.has(id) : kind === 'sci' ? mktIds.has(id) : false);
+  const cycleRepKind = () => {
+    const next = REP_KIND_NEXT[repKind];
+    setRepKindState(next);
+    try { localStorage.setItem(REP_KIND_KEY, next); } catch { /* يبقى للجلسة */ }
+    const open = (d: Draft) => !(d.state === 'done' || d.state === 'warn' || d.state === 'saving' || d.bot);
+    const clear = new Set(draftsRef.current.filter(d => open(d) && outOfKind(d.repUserId, next)).map(d => d.key));
+    // رجوع للعلميين/التلقائي ⇒ صاحب المنطقة يُختار من جديد لما بقي بلا مندوب
+    const reResolve = next === 'mkt' ? [] : draftsRef.current.filter(d => open(d) && d.areaName.trim() && (clear.has(d.key) || !d.repUserId));
+    if (clear.size) setDrafts(ds => ds.map(d => (clear.has(d.key) ? { ...d, repUserId: null, repName: null, repWhy: null } : d)));
+    repKindRef.current = next;
+    reResolve.forEach(d => resolveRep(d.key, d.areaName, { ...d, repUserId: null }));
+  };
 
   const addDrafts = useCallback((incoming: Draft[], t: Rep[]) => {
     if (t?.length) setTeam(prev => [...prev, ...t.filter(x => !prev.some(p => p.id === x.id))]);
@@ -425,8 +458,10 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
       const next = incoming.map(d => {
         const dupInBatch = d.dupInBatch || Boolean(d.sourceHash && hashes.has(d.sourceHash));
         if (d.sourceHash) hashes.add(d.sourceHash);
+        // «مسوقين»: الخادم يختار علمياً فقط ⇒ يُترك المندوب للمستخدم
+        const noRep = repKindRef.current === 'mkt' ? { repUserId: null, repName: null, repWhy: null } : {};
         return {
-          ...d, mentionedWarehouses: d.mentionedWarehouses ?? [], dupInBatch, include: !dupInBatch && !d.duplicateOf,
+          ...d, ...noRep, mentionedWarehouses: d.mentionedWarehouses ?? [], dupInBatch, include: !dupInBatch && !d.duplicateOf,
           whText: d.whText ?? d.writtenWarehouses?.[0] ?? d.warehouseName ?? '',
         };
       });
@@ -539,7 +574,7 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
     if (!d.pharmacyName.trim()) return 'اسم الصيدلية مطلوب';
     // اللكوديشن: المبيع يُحسب للمندوب العلمي، فهو الشرط؛ المذخر اختياري
     // (طلبية البوت بلا مندوب تبقى مقبولة كما كانت بالجدول القديم ← شيت «بلا مندوب»)
-    if (mode === 'liq' && !d.bot && !d.repUserId) return 'اختر المندوب العلمي — المبيع يُحسب له';
+    if (mode === 'liq' && !d.bot && !d.repUserId) return repKindRef.current === 'mkt' ? 'اختر المسوق — المبيع يُحسب له' : 'اختر المندوب العلمي — المبيع يُحسب له';
     if (mode === 'wh' && !d.warehouseId && !d.warehouseName.trim()) return 'اختر المذخر';
     if (!d.lines.some(l => l.itemName.trim() && l.quantity > 0)) return 'لا أصناف بكمية';
     const noQty = d.lines.find(l => l.itemName.trim() && !(l.quantity > 0));
@@ -560,7 +595,7 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
 
   /** صفوف ملف اللكوديشن لطلبية واحدة — بنفس شكل صفوف مراجعة طلبيات البوت (ManualSalesModal). */
   const liqRows = (d: Draft) => {
-    const rep = repOptions.find(r => r.id === d.repUserId)?.name ?? d.repName ?? '';
+    const rep = allReps.find(r => r.id === d.repUserId)?.name ?? d.repName ?? '';
     if (d.bot) {
       // طلبية بوت: نفس صفوف الجدول القديم (ManualSalesModal) — مصدرها ورقم BOT-<id> وتاريخ فاتورتها
       return d.lines.filter(l => l.itemName.trim() && l.quantity > 0).map(l => ({
@@ -690,7 +725,7 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
         } else {
           ok += batch.length; lines += added;
           for (const d of batch) {
-            const rep = repOptions.find(x => x.id === d.repUserId)?.name ?? '';
+            const rep = allReps.find(x => x.id === d.repUserId)?.name ?? '';
             patch(d.key, { state: 'done', result: `أُضيفت للكوديشن${rep ? ` باسم ${rep}` : ' (بلا مندوب)'}${batch.length === 1 ? ` — ${added} صنف` : ''}${skipped ? ` (أُسقط ${skipped} مكرر)` : ''}` });
           }
         }
@@ -811,6 +846,9 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
             const extraWh = warehouses.filter(w => !d.mentionedWarehouses.some(m => m.id === w.id));
             const candIds = new Set(d.repCandidates.map(c => c.id));
             const repList = [...repOptions.filter(r => candIds.has(r.id)), ...repOptions.filter(r => !candIds.has(r.id))];
+            // زر النوع: لصق/كتابة فقط (لا مراجعة البوت) وحين يكون للفريق مسوقون
+            const kindOn = !d.bot && marketers.length > 0;
+            const kind: RepKind = kindOn ? repKind : 'auto';
             const repHint = [d.repWhy ? REP_WHY[d.repWhy] : d.repUserId ? '' : (d.repNote ?? ''), d.sender ? `المرسل: ${d.sender}` : ''].filter(Boolean).join(' · ');
             return (
               <div key={d.key} className={`vi-card ${!d.include ? 'is-off' : ''} ${d.state ? `is-${d.state}` : ''}`}>
@@ -856,14 +894,28 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
                         <AreaSearch areas={areaOpts} value={d.areaName} disabled={locked}
                           onText={v => patch(d.key, { areaName: v })} onCommit={a => resolveRep(d.key, a)} />
                       </label>
-                      <label className="vi-f"><span>المندوب العلمي</span>
+                      {/* div لا label: الضغط على عنوان الحقل كان سيضغط زر النوع */}
+                      <div className="vi-f"><span className="vi-f__h">{kindOn ? (kind === 'mkt' ? 'المسوق' : 'المندوب') : 'المندوب العلمي'}
+                        {kindOn && (
+                          <button type="button" className={`vi-kind is-${kind}`} disabled={locked} onClick={cycleRepKind}
+                            title={`القائمة الآن: ${REP_KIND_LABEL[kind]} — اضغط للتبديل (تلقائي ← مسوقين ← علميين). يبقى اختيارك محفوظاً`}>
+                            {REP_KIND_LABEL[kind]}
+                          </button>
+                        )}
+                      </span>
                         <select className="form-input" value={d.repUserId ?? ''} disabled={locked}
                           onChange={e => patch(d.key, { repUserId: e.target.value ? Number(e.target.value) : null, repWhy: null })}>
-                          <option value="">— المندوب العلمي —</option>
-                          {repList.map(r => <option key={r.id} value={r.id}>{candIds.has(r.id) ? '★ ' : ''}{r.name}</option>)}
+                          <option value="">{kind === 'mkt' ? '— اختر المسوق —' : '— المندوب العلمي —'}</option>
+                          {kind !== 'mkt' && repList.map(r => <option key={r.id} value={r.id}>{candIds.has(r.id) ? '★ ' : ''}{r.name}</option>)}
+                          {kind === 'mkt' && marketers.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+                          {kind === 'auto' && kindOn && (
+                            <optgroup label="مسوقين">
+                              {marketers.filter(m => !repList.some(r => r.id === m.id)).map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+                            </optgroup>
+                          )}
                         </select>
-                        {repHint && <small className="vi-hint">{repHint}</small>}
-                      </label>
+                        {repHint && kind !== 'mkt' && <small className="vi-hint">{repHint}</small>}
+                      </div>
                     </div>
 
                     {/* اللكوديشن: المذخر نصّاً كما كُتب في الرسالة (الاختيار من الدليل في وضع «مذاخر» فقط) */}

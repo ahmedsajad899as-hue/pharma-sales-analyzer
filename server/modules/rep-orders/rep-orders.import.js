@@ -59,6 +59,22 @@ async function loadTeam(viewer) {
 }
 
 /**
+ * مسوقو فريق المُشاهِد (repKind='pharmacy') — لزر «مسوقين» في خانة المندوب بلوحة الفايبر:
+ * اختيار يدوي فقط، لا يدخلون الاختيار التلقائي بالمنطقة (ذاك للعلميين).
+ */
+async function loadMarketers(viewer) {
+  const ids = await teamUserIds(viewer);
+  const users = await prisma.user.findMany({
+    where: { id: { in: ids, not: viewer.id }, isActive: true, role: 'scientific_rep' },
+    select: { id: true, displayName: true, username: true, linkedRep: { select: { repKind: true } } },
+  });
+  return users
+    .filter(u => isPharmacyRep(u.linkedRep))
+    .map(u => ({ id: u.id, name: u.displayName?.trim() || u.username }))
+    .sort((a, b) => a.name.localeCompare(b.name, 'ar'));
+}
+
+/**
  * مفتاح منطقة مرن للمطابقة بين ما كُتب في الطلبية واسم المنطقة المعيّنة للمندوب:
  * بلا «شارع/حي/منطقة» وبلا «ال» وبلا مسافات — «شارع فلسطين» = «فلسطين»، «يوسفية» = «اليوسفيه».
  */
@@ -564,10 +580,11 @@ export async function importFromScreenshots(reqUser, files) {
  */
 export async function areaSuggestions(reqUser) {
   const viewer = await loadViewer(reqUser);
-  const [ctx, areas, aliases] = await Promise.all([
+  const [ctx, areas, aliases, marketers] = await Promise.all([
     loadRepContext(viewer),
     prisma.area.findMany({ select: { name: true } }),
     prisma.areaAlias.findMany({ select: { fromName: true, area: { select: { name: true } } } }),
+    loadMarketers(viewer),
   ]);
   const teamKeys = new Set();
   for (const sc of ctx.repScope.values()) for (const k of sc.areas) teamKeys.add(k);
@@ -586,7 +603,7 @@ export async function areaSuggestions(reqUser) {
   }
   const list = [...out.values()].map(x => ({ ...x, covered: isCovered(x.canon || x.name) }));
   list.sort((a, b) => Number(b.covered) - Number(a.covered) || a.name.localeCompare(b.name, 'ar'));
-  return { areas: list, team: ctx.team.list.map(u => ({ id: u.id, name: u.name })) };
+  return { areas: list, team: ctx.team.list.map(u => ({ id: u.id, name: u.name })), marketers };
 }
 
 /**
