@@ -45,9 +45,13 @@ export async function getRosterCompanyIds(user) {
  * @returns {Promise<number[]>} معرّفات الشركات المُعيَّنة فعلاً
  */
 export async function syncOfficeScopedCompanies(userId, officeId) {
-  const companies = officeId
-    ? await prisma.scientificCompany.findMany({ where: { officeId }, select: { id: true } })
-    : [];
+  // بلا مكتب: لا نمسح شيئاً — المسح هنا كان يُفرغ شركات موظف المكتب كلها عند أي
+  // حفظ من السوبر أدمن لحساب حقل مكتبه فارغ، فتختفي قائمة «المستخدمين» عنده.
+  if (!officeId) {
+    const keep = await prisma.userCompanyAssignment.findMany({ where: { userId }, select: { companyId: true } });
+    return keep.map(c => c.companyId);
+  }
+  const companies = await prisma.scientificCompany.findMany({ where: { officeId }, select: { id: true } });
   const ids = companies.map(c => c.id);
 
   await prisma.$transaction([

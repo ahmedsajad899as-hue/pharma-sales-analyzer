@@ -263,6 +263,7 @@ export default function UsersPage() {
   const [fPassword,     setFPassword]     = useState('');
   const [fRole,         setFRole]         = useState<string>('user');
   const [fIsActive,     setFIsActive]     = useState(true);
+  const [membersNoOffice, setMembersNoOffice] = useState(false);
   const [fLinkedRepId,  setFLinkedRepId]  = useState<number | ''>('');
   const [fNewPass,      setFNewPass]      = useState('');
   const [fConfirm,      setFConfirm]      = useState('');
@@ -277,6 +278,7 @@ export default function UsersPage() {
         if (!r.ok) throw new Error(j.error || 'فشل تحميل أعضاء الشركة');
         setCompanyMembers(j.data ?? []);
         setCanEditMembers(j.canEdit !== false);
+        setMembersNoOffice(j.reason === 'no_office');
       } catch (err: any) { setMembersError(err.message || 'فشل تحميل أعضاء الشركة'); }
       finally { setMembersLoading(false); }
       return;
@@ -522,8 +524,13 @@ export default function UsersPage() {
         ) : companyMembers.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '40px 20px', color: '#94a3b8' }}>
             <div style={{ fontSize: 40, marginBottom: 12 }}>👥</div>
-            <p>لا يوجد موظفون تابعون لك حتى الآن</p>
-            <p style={{ fontSize: 12, marginTop: 4 }}>يربط السوبر أدمن الموظفين بك من تبويب «المدراء» في حساباتهم</p>
+            {membersNoOffice ? (<>
+              <p>حسابك غير مربوط بمكتب، لذلك لا تظهر الشركات والمندوبون</p>
+              <p style={{ fontSize: 12, marginTop: 4 }}>يحدّد السوبر أدمن «المكتب» في بيانات حسابك فتظهر كل شركات المكتب تلقائياً</p>
+            </>) : (<>
+              <p>لا يوجد موظفون تابعون لك حتى الآن</p>
+              <p style={{ fontSize: 12, marginTop: 4 }}>يربط السوبر أدمن الموظفين بك من تبويب «المدراء» في حساباتهم</p>
+            </>)}
           </div>
         ) : (
           <>

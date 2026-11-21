@@ -5,6 +5,7 @@ import { provinceByAreaName } from '../../lib/repLocation.js';
 import {
   resolveEffectiveAreas, resolveEffectiveAreaIds, userHasAllAreas, saveUserAreaAssignments,
 } from '../../lib/areaScope.js';
+import { syncOfficeScopedCompanies } from '../../lib/officeScope.js';
 
 /** أدوار تشرف على شركات مكتبها كلها (رئيسية وثانوية بالتساوي)، لا على شركتها الرئيسية فقط. */
 const OFFICE_WIDE_ROLES = new Set(['office_manager', 'office_hr', 'office_employee']);
@@ -22,7 +23,19 @@ async function getManagerCompanyIds(userId, role) {
     where: { userId },
     select: { companyId: true, isPrimary: true },
   });
-  if (isOfficeWide(role)) return assignments.map(a => a.companyId);
+  if (isOfficeWide(role)) {
+    // الأدوار المكتبية = كل شركات مكتبها، تُقرأ من المكتب مباشرة لا من التعيينات
+    // وحدها (قد تُفرَغ التعيينات فتختفي القائمة كلها). ونُصلح التعيينات إن نقصت.
+    const ids = new Set(assignments.map(a => a.companyId));
+    const u = await prisma.user.findUnique({ where: { id: userId }, select: { officeId: true } });
+    if (u?.officeId) {
+      const office = await prisma.scientificCompany.findMany({ where: { officeId: u.officeId }, select: { id: true } });
+      const missing = office.some(c => !ids.has(c.id));
+      for (const c of office) ids.add(c.id);
+      if (missing) await syncOfficeScopedCompanies(userId, u.officeId).catch(() => {});
+    }
+    return [...ids];
+  }
   const primary = assignments.filter(a => a.isPrimary).map(a => a.companyId);
   return primary.length ? primary : assignments.map(a => a.companyId);
 }
@@ -345,7 +358,9 @@ export async function listCompanyMembers(req, res, next) {
       where = { id: { in: subIds } };
     } else {
       const companyIds = await getManagerCompanyIds(managerId, req.user.role);
-      if (companyIds.length === 0) return res.json({ success: true, data: [] });
+      if (companyIds.length === 0) {
+        return res.json({ success: true, data: [], ...(officeWide ? { reason: 'no_office' } : {}) });
+      }
       // Users (excluding self) whose PRIMARY company is one of the manager's companies
       // (or any company, primary or secondary, for an office-wide role)
       where = {
