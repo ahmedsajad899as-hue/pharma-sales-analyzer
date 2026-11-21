@@ -2500,8 +2500,10 @@ const isOfficeFileRow = s => typeof s.id === 'number' && s.uploadedFile && s.upl
 
 async function applySciExclusions(rawSales, fileIds, query, viewerId) {
   let out = rawSales;
-  // «بدون التجاري»: صفوف المكتب التي «معلومات الزبون» فيها تجاري (ميركاتو بلا قيمة فيبقى).
-  if (query.excludeCommercial) out = out.filter(s => !looksLikeCommercialInfo(s.customerInfoNorm));
+  // «بدون التجاري»: صفوف مبيع المكتب المباشر التي «معلومات الزبون» فيها تجاري — سطر Office فقط.
+  // طلبيات الترانزيت (s.transit) تحمل «معلومات الزبون» صفّها في ملف المكتب (علمي/تجاري) لكنها
+  // تُعدّ لكوديشن لا Office، فلا تُعزل؛ وميركاتو وملف الكوديشن خارج العزل أصلاً (كـ«بدون الفارمسي»).
+  if (query.excludeCommercial) out = out.filter(s => !(isOfficeFileRow(s) && looksLikeCommercialInfo(s.customerInfoNorm)));
   if (query.excludePharmacy) {
     // طريقة العزل لكل شركة (السوبر أدمن): 'yazen' = صفوف المكتب المطابقة ليزن المسوقين
     // (lib/yazenOfficeMatch.js، محسوبة مسبقاً)، وإلا «معلومات الزبون» كما كانت.
