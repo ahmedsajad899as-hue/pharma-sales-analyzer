@@ -11,6 +11,33 @@ interface ScientificRep { id: number; name: string; repKind?: string | null; }
 
 /** المسوّق (repKind='pharmacy') لا ينتمي لأي شركة — يعمل على شركات المكتب المعيّنة له فقط. */
 const isMarketerMember = (m: { linkedRep?: ScientificRep | null }) => m.linkedRep?.repKind === 'pharmacy';
+type KindFilter = 'all' | 'scientific' | 'marketer';
+const KIND_FILTER_KEY = 'users:kindFilter';
+
+/** «الكل | العلميين | المسوقين» — نفس شكل زر بغداد/محافظات. */
+function KindFilterSwitch({ value, onChange, counts }: { value: KindFilter; onChange: (v: KindFilter) => void; counts: Record<KindFilter, number> }) {
+  const opts: { v: KindFilter; label: string }[] = [
+    { v: 'all', label: 'الكل' }, { v: 'scientific', label: '🩺 العلميين' }, { v: 'marketer', label: '🏪 المسوقين' },
+  ];
+  return (
+    <div role="group" aria-label="نوع المندوبين" style={{ display: 'inline-flex', gap: 2, padding: 2, borderRadius: 999, border: '1.5px solid var(--c-border)', background: 'var(--c-bg)' }}>
+      {opts.map(o => {
+        const on = value === o.v;
+        return (
+          <button key={o.v} type="button" aria-pressed={on} onClick={() => onChange(o.v)} style={{
+            display: 'inline-flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap', padding: '5px 12px', borderRadius: 999,
+            cursor: 'pointer', border: 'none', fontSize: 12.5, fontWeight: 700, fontFamily: 'inherit',
+            background: on ? 'var(--c-accent)' : 'transparent', color: on ? '#fff' : 'var(--c-text-secondary)',
+          }}>
+            {o.label}
+            <span style={{ fontSize: 10.5, fontWeight: 800, borderRadius: 999, padding: '0 6px', background: on ? 'rgba(255,255,255,.25)' : 'var(--c-border)', color: on ? '#fff' : 'var(--c-text-secondary)' }}>{counts[o.v]}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 const MARKETER_ROLE_LABELS: Record<string, string> = {
   scientific_rep: '🏪 مسوّق', team_leader: '🎯 قائد فريق المسوقين', company_manager: '🏪 مدير المسوقين',
 };
@@ -238,6 +265,15 @@ export default function UsersPage() {
   const [membersError, setMembersError]           = useState('');
   const [canEditMembers, setCanEditMembers]       = useState(true);
   const [onlyProvince, setOnlyProvince]           = useProvinceRepScope('users');
+  // عرض المكتب: العلميين / المسوقين / الكل — تفضيل عرض يُحفظ في المتصفح
+  const [kindFilter, setKindFilterState]          = useState<KindFilter>(() => {
+    try { const v = localStorage.getItem(KIND_FILTER_KEY); return v === 'scientific' || v === 'marketer' ? v : 'all'; }
+    catch { return 'all'; }
+  });
+  const setKindFilter = (v: KindFilter) => {
+    setKindFilterState(v);
+    try { localStorage.setItem(KIND_FILTER_KEY, v); } catch { /* تفضيل اختياري */ }
+  };
   const [areasModalMember, setAreasModalMember]   = useState<CompanyMember | null>(null);
   // تعديل اسم الموظف + تفعيل/تعطيل حسابه (PATCH /api/company-members/:id)
   const [accountMember, setAccountMember]         = useState<CompanyMember | null>(null);
@@ -512,8 +548,14 @@ export default function UsersPage() {
   const officeFieldMembers = companyMembers
     .filter(m => OFFICE_VIEW_ROLES.has(m.role))
     .map(m => ({ ...m, isProvinceMember: isProvinceSide(m) }));
+  const scopeMembers = officeFieldMembers.filter(m => m.isProvinceMember === onlyProvince);
+  const kindCounts = {
+    all: scopeMembers.length,
+    scientific: scopeMembers.filter(m => !isMarketerMember(m)).length,
+    marketer: scopeMembers.filter(isMarketerMember).length,
+  };
   const visibleMembers = isOfficeView
-    ? officeFieldMembers.filter(m => m.isProvinceMember === onlyProvince)
+    ? scopeMembers.filter(m => kindFilter === 'all' || (kindFilter === 'marketer') === isMarketerMember(m))
     : companyMembers;
 
   // ── Company Manager View ─────────────────────────────────────
@@ -557,6 +599,7 @@ export default function UsersPage() {
                 placeholder={isOfficeView ? "🔍 بحث باسم الموظف أو الشركة أو المنطقة..." : "🔍 بحث باسم الموظف أو المنطقة..."}
                 style={{ flex: '1 1 240px', padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: 10, fontSize: 13 }}
               />
+              {isOfficeView && <KindFilterSwitch value={kindFilter} onChange={setKindFilter} counts={kindCounts} />}
               {isOfficeView && <ProvinceRepsToggle reps={officeFieldMembers} value={onlyProvince} onChange={setOnlyProvince} />}
               <span style={{ fontSize: 12, color: '#64748b' }}>{visibleMembers.length} موظف</span>
             </div>
@@ -720,6 +763,16 @@ export default function UsersPage() {
                       ...companySections(scientific).map(sec => ({ ...sec, icon: sec.key === NO_COMPANY_SECTION ? '⚪' : '🏢' })),
                       ...sectionsBy(marketers, () => '🏪 المسوقين — للمكتب كله', 'mk:', ''),
                     ];
+                if (sections.length === 0) {
+                  return (
+                    <div style={{ textAlign: 'center', padding: '30px 20px', color: '#94a3b8', fontSize: 13 }}>
+                      {q ? 'لا توجد نتائج مطابقة للبحث'
+                        : kindFilter === 'marketer' ? 'لا يوجد مسوقون هنا'
+                        : kindFilter === 'scientific' ? 'لا يوجد مندوبون علميون هنا'
+                        : 'لا يوجد موظفون هنا'}
+                    </div>
+                  );
+                }
                 return sections.map(section => {
                   const rows: JSX.Element[] = [];
                   const countAll = (n: MemberNode<CompanyMember>): number => n.children.reduce((s, c) => s + 1 + countAll(c), 0);
