@@ -94,14 +94,35 @@ function hasDifferentCoreNumbers(a, b) {
   // "680+80mg" dose. Real dose differences (250 vs 500 mg) are still caught.
   const stripPack = s => s.replace(/\b\d+\s*(?:x\s*\d+\s*)?(?:tabs?|tablets?|caps?|capsules?|sachets?|amps?|ampoules?|vials?|pcs?|pieces?|strips?)\b/gi, ' ');
   const clean = s => stripPack(stripConc(s));
-  const numsA = (clean(a).match(/\d+/g) || []);
-  const numsB = (clean(b).match(/\d+/g) || []);
+  const numsA = doseTokens(clean(a));
+  const numsB = doseTokens(clean(b));
   if (numsA.length === 0 || numsB.length === 0) return false;
   const shorter = numsA.length <= numsB.length ? numsA : numsB;
   const longer  = numsA.length <= numsB.length ? numsB : numsA;
   // shorter must be a prefix of longer (same order) to be considered "same core"
-  return !shorter.every((n, i) => longer[i] === n);
+  return !shorter.every((n, i) => sameDose(longer[i], n));
 }
+
+/**
+ * أرقام الجرعة كرموز { raw, mg } (2026-11-21، طلبية كربلاء «Amoklavin 1g»):
+ *  • العشري رقم واحد: «1.2g» = 1.2 لا [1, 2] — كان «1g» يُعدّ بادئة «1.2g» فيُربط
+ *    بـ«Amoklavin I.V falkon 1.2g» بدل «AMOKLAVIN BID 1000MG».
+ *  • فاصل الآلاف يُدمج («50.000IU»، «50,000» = 50000) — الرقم الأول غير صفري شرط
+ *    كي تبقى «0.125» عشرية.
+ *  • «g» بعد الرقم = ×1000 ملغ («1g» = «1000MG»). «mg» لا تُمسّ.
+ */
+function doseTokens(s) {
+  const joined = String(s).replace(/\b([1-9]\d{0,2})[.,'](\d{3})(?!\d)/g, '$1$2');
+  return [...joined.matchAll(/(\d+(?:\.\d+)?)(\s*(?:g|gm|gr|gram|grams)(?![a-z]))?/g)].map(m => {
+    const raw = Number(m[1]);
+    return { raw, mg: m[2] ? Math.round(raw * 1000 * 1000) / 1000 : null };
+  });
+}
+// نفس الرقم كما كُتب، أو نفس القيمة بالملغ حين يحمل أحدهما «g» («1g» = «1000»؛
+// «Dikloron gel 50» = «50 g» لأن الرقم الخام واحد).
+const sameDose = (x, y) => x.raw === y.raw
+  || (x.mg != null && x.mg === (y.mg ?? y.raw))
+  || (y.mg != null && y.mg === (x.mg ?? x.raw));
 
 /**
  * طريقة الإعطاء (IM/IV/SC) تفصل ايتمين مختلفين بنفس الاسم والجرعة: «Daytrix 1g IM»

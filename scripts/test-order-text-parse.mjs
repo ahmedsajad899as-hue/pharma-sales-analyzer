@@ -376,6 +376,23 @@ check('منطقة الموديل غير المذكورة في سطر المذخ�
   check('«Amoklavin 1g 20p» (الترتيب القديم) يبقى', parseItemLine('Amoklavin 1g 20p'), { name: 'Amoklavin 1g', quantity: 20, bonus: null });
   check('رقم بلا وحدة في الوسط جرعة لا كمية', parseItemLine('Amoklavin 625 1g'), null);
   check('«Pantoprazole 40 Pfizer» لا تُقرأ «P» وحدة', parseItemLine('Pantoprazole 40 Pfizer'), null);
+  // صاحب المشروع: «Amoklavin 1g» رُبط خطأً بـ«Amoklavin I.V falkon 1.2g» — 1g = 1000 و1.2g صنف IV آخر.
+  const { resolveItemNameSync } = await import('../server/lib/itemResolver.js');
+  const { areSimilar } = await import('../server/lib/fuzzyMatch.js');
+  const catK = [...cat3, { id: 36, name: 'Amoklavin I.V falkon 1.2g' }, { id: 37, name: 'Amoklavin I.V falkon 600mg' }];
+  const ctxK = { catalog: catK, catalogById: new Map(catK.map(c => [c.id, c])), aliasMap: new Map() };
+  const resolve = (n) => { const r = resolveItemNameSync(n, ctxK); return [r.confidence, r.canonicalItem?.id ?? null]; };
+  check('«Amoklavin 1g» ← BID 1000MG لا falkon 1.2g', resolve('Amoklavin 1g'), ['high', 31]);
+  check('«Amoklavin 1.2g iv» ← falkon 1.2g', resolve('Amoklavin 1.2g iv'), ['high', 36]);
+  check('«Amoklavin 625» ← 625 500 125MG', resolve('Amoklavin 625'), ['high', 30]);
+  check('بديل الجرعة: «Amoklavin 1g» ← 1000MG وحده', fb3('Amoklavin 1g', catK), ['high', 31]);
+  check('بديل الجرعة: «Amoklavin 1.2» ← falkon 1.2g', fb3('Amoklavin 1.2', catK), ['high', 36]);
+  check('1g ≠ 1.2g', areSimilar('Amoklavin 1g', 'Amoklavin I.V falkon 1.2g'), false);
+  check('1.5g ≠ 1g', areSimilar('Vitamin C 1.5g', 'Vitamin C 1g'), false);
+  check('2g = 2000mg', areSimilar('Ceftriaxone 2g', 'Ceftriaxone 2000mg'), true);
+  check('«gel 50» = «50 g Gel» (الرقم الخام واحد)', areSimilar('Dikloron gel 50', 'Dikloron 50 g Gel'), true);
+  check('0.125 ≠ 0.25', areSimilar('Digoxin 0.125mg', 'Digoxin 0.25mg'), false);
+  check('«50.000IU» = «50000»', areSimilar('Devit 50.000IU', 'Devit 50000'), true);
   check('جملة فايبر «… 30 قطعة عن طريق مذخر …» ليست كمية وسطى',
     parseItemLine('تم سحب amoklavine 1g 30 قطعة عن طريق مذخر ادوية ارض البنفسج'), null);
   check('«Daytrix 10p 1g IV» ذيل كلمتين', parseItemLine('Daytrix 10p 1g IV'), { name: 'Daytrix 1g IV', quantity: 10, bonus: null });

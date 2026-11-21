@@ -92,9 +92,14 @@ async function buildItemContext(userId) {
 // normalizeItemKey (التطبيع يحوّل «,» مسافة فتصير رقمين). الرقم الأول غير صفري شرطٌ
 // كي تبقى «0.125mg» عشرية. أعداد العبوة («8CAP»، «1AMP»، «15ML»، «30TAB») ليست جرعة.
 const PACK_RE = /\b\d+\s*(?:x\s*\d+\s*)?(?:tabs?|tablets?|caps?|capsules?|amps?|ampoules?|vials?|sachets?|pcs?|strips?|ml|kapsul|film)\b/gi;
+// العشري رقم واحد («1.2g» = 1.2 لا [1, 2])، و«g» بعد الرقم = ×1000 ملغ («1g» = 1000،
+// «1.2g» = 1200) — طلبية كربلاء 2026-11-21: «Amoklavin 1g» رُبط بـ«falkon 1.2g» لأن 1 = 1.
+// الرقم بلا وحدة («Devit 50») يبقى كما هو ويقابله «×1000» في doseHit.
 function doseNumbers(s) {
   const joined = String(s ?? '').replace(/\b([1-9]\d{0,2})[.,'](\d{3})(?!\d)/g, '$1$2');
-  return (normalizeItemKey(joined).replace(PACK_RE, ' ').match(/\d+/g) || []).map(Number);
+  const key = normalizeItemKey(joined).replace(PACK_RE, ' ');
+  return [...key.matchAll(/(\d+(?:\.\d+)?)(\s*(?:g|gm|gr|gram|grams)(?![a-z]))?/g)]
+    .map(m => (m[2] ? Math.round(Number(m[1]) * 1000 * 1000) / 1000 : Number(m[1])));
 }
 // عدد العبوة («5 amp»، «8CAP»، «30 tab») — يفصل أحجام نفس الصنف («Amikaver 500mg 2ml 5 amp»
 // عن «… 1 amp»). ml ليس عدداً بل حجماً.
