@@ -119,10 +119,23 @@ function doseTokens(s) {
   });
 }
 // نفس الرقم كما كُتب، أو نفس القيمة بالملغ حين يحمل أحدهما «g» («1g» = «1000»؛
-// «Dikloron gel 50» = «50 g» لأن الرقم الخام واحد).
-const sameDose = (x, y) => x.raw === y.raw
+// «Dikloron gel 50» = «50 g» لأن الرقم الخام واحد)، أو عدد صحيح هو العشري مقصوصاً.
+const sameDose = (x, y) => x.raw === y.raw || truncatedDose(x.raw, y.raw)
   || (x.mg != null && x.mg === (y.mg ?? y.raw))
   || (y.mg != null && y.mg === (x.mg ?? x.raw));
+
+/**
+ * المندوب يقصّ الكسر: «Moxiblav 312» = «MOXIBLAV 312.5MG/5ML» (كربلاء 2026-11-21، كسرها
+ * قراءة العشري رقماً واحداً). عدد صحيح = عشري مقصوص أو مقرَّب، **والفرق ≤ 1%** — فـ«1»
+ * لا تساوي «1.2» (falkon 1.2g ليس Amoklavin 1g) ولا «2» تساوي «2.5».
+ */
+export function truncatedDose(a, b) {
+  if (!Number.isFinite(a) || !Number.isFinite(b) || a === b) return false;
+  const [int, dec] = Number.isInteger(a) ? [a, b] : [b, a];
+  if (!Number.isInteger(int) || Number.isInteger(dec)) return false;
+  if (Math.trunc(dec) !== int && Math.round(dec) !== int) return false;
+  return Math.abs(dec - int) / Math.max(dec, int) <= 0.01;
+}
 
 /**
  * طريقة الإعطاء (IM/IV/SC) تفصل ايتمين مختلفين بنفس الاسم والجرعة: «Daytrix 1g IM»

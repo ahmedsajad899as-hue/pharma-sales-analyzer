@@ -380,7 +380,8 @@ export async function extractOrderRowsByMode(text, { mode = 'both', todayISO, th
 // 10 (2026-11-21): «10 ق تينتيز» الكمية ووحدتها قبل الاسم (كروب ميسان).
 // 11: «Amoklavin 20p 1g» الكمية بوحدتها بين العلامة والجرعة (كربلاء).
 // 12: إعادة ربط بعد إصلاح الجرعة «1g» = 1000 ≠ «1.2g» (كان يُربط بـfalkon 1.2g IV).
-export const TEXT_PARSE_VERSION = 12;
+// 13: «Moxiblav 312» = «312.5MG» (عدد صحيح = عشري مقصوص بفرق ≤1%) — كسرها إصلاح 12.
+export const TEXT_PARSE_VERSION = 13;
 
 /**
  * القراءة الحتمية للنصّ تغلب اجتهاد الموديل حيث يحسم الشكل: ترويسة متعدّدة الأسطر

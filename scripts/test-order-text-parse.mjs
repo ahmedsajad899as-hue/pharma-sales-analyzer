@@ -393,6 +393,20 @@ check('منطقة الموديل غير المذكورة في سطر المذخ�
   check('«gel 50» = «50 g Gel» (الرقم الخام واحد)', areSimilar('Dikloron gel 50', 'Dikloron 50 g Gel'), true);
   check('0.125 ≠ 0.25', areSimilar('Digoxin 0.125mg', 'Digoxin 0.25mg'), false);
   check('«50.000IU» = «50000»', areSimilar('Devit 50.000IU', 'Devit 50000'), true);
+  // كربلاء (ياسر): «Moxiblav 312» والكتالوج «moxiblav 312.5mg 5ml» — المندوب يقصّ الكسر.
+  const catM = [{ id: 50, name: 'MOXIBLAV 312.5MG/5ML' }, { id: 51, name: 'MOXIBILLIN 250MG/5ML' }, { id: 52, name: 'MOXIBILLIN 125MG/5ML' }];
+  const ctxM = { catalog: catM, catalogById: new Map(catM.map(c => [c.id, c])), aliasMap: new Map() };
+  check('«Moxiblav 312» ← 312.5MG', [resolveItemNameSync('Moxiblav 312', ctxM).canonicalItem?.id, brandDoseFallback('Moxiblav 312', catM)?.canonicalItem?.id], [50, 50]);
+  check('312 = 312.5 (الكسر مقصوص)', areSimilar('Moxiblav 312', 'Moxiblav 312.5mg 5ml'), true);
+  check('156 = 156.25', areSimilar('Moxiblav 156', 'MOXIBLAV 156.25MG/5ML'), true);
+  check('2 ≠ 2.5 (الفرق > 1%)', areSimilar('Panadol 2', 'Panadol 2.5'), false);
+  check('falkon يبقى مستبعداً: 1 ≠ 1.2', [areSimilar('Amoklavin 1', 'Amoklavin I.V falkon 1.2g'), fb3('Amoklavin 1', catK)], [false, ['high', 31]]);
+  {
+    const t = 'Moxiblav 312\n10 + 6\nالصيدلية العراقية\nم درة لبنان';
+    const { header, itemLines } = parseOrderText(t);
+    check('ياسر: الترويسة', { pharmacy: header.pharmacy, warehouse: header.warehouse }, { pharmacy: 'العراقية', warehouse: 'درة لبنان' });
+    check('ياسر: «10 + 6» سطراً وحده', itemLines.map(parseItemLine), [{ name: 'Moxiblav 312', quantity: 10, bonus: 6 }]);
+  }
   check('جملة فايبر «… 30 قطعة عن طريق مذخر …» ليست كمية وسطى',
     parseItemLine('تم سحب amoklavine 1g 30 قطعة عن طريق مذخر ادوية ارض البنفسج'), null);
   check('«Daytrix 10p 1g IV» ذيل كلمتين', parseItemLine('Daytrix 10p 1g IV'), { name: 'Daytrix 1g IV', quantity: 10, bonus: null });

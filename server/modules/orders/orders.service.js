@@ -20,7 +20,7 @@ import { cleanPharmacyName } from '../../lib/surveyPharmacies.js';
 import { matchInvoiceCustomers } from '../../lib/invoiceCustomerMatch.js';
 import { REP_ROLES } from '../../lib/areaScope.js';
 import { isManagementRepRecord, candidateOwnsItem, candidateHoldsItem, provinceIdByNameKey, rowCoverage, candidateCoversRow, pickRepOrLeader } from '../../lib/repGuessRules.js';
-import { similarity, routesOf, hasDifferentRoutes } from '../../lib/fuzzyMatch.js';
+import { similarity, routesOf, hasDifferentRoutes, truncatedDose } from '../../lib/fuzzyMatch.js';
 import { arabicBrandWord, crossScriptFamily } from '../../lib/drugSkeleton.js';
 import { applyTextParse, TEXT_PARSE_VERSION } from './order-extract.js';
 import { fillRepFromSenderName, fillAreaFromGroup, fillAreaFromRep } from './group-context.js';
@@ -185,7 +185,7 @@ export function brandDoseFallback(name, catalog) {
 
   const q = dosesOf(name)[0];
   const qSums = compositeDoseSums(name); // «400/57» ⇒ 457
-  const doseHit = (c) => dosesOf(c.name).some(n => n === q || n === q * 1000 || qSums.includes(n))
+  const doseHit = (c) => dosesOf(c.name).some(n => n === q || n === q * 1000 || truncatedDose(n, q) || qSums.includes(n))
     || compositeDoseSums(c.name).includes(q); // «457» ⇒ «400/57MG SUSP»
   let hits = q != null ? family.filter(doseHit) : family;
   // الشكل الصيدلاني («Azitro sus» ← «AZITRO Susp 200mg/5ml» لا «Azitro 500mg Tab»)
