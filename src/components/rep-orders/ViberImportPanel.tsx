@@ -316,7 +316,8 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
     try { const v = localStorage.getItem(REP_KIND_KEY); return v === 'mkt' || v === 'sci' ? v : 'auto'; } catch { return 'auto'; }
   });
   const repKindRef = useRef(repKind);
-  repKindRef.current = repKind;
+  // فريق بلا مسوقين ⇒ الزر مخفي والاختيار المحفوظ لا يسري
+  repKindRef.current = marketers.length ? repKind : 'auto';
   const [catalog, setCatalog] = useState<CatItem[]>([]);
   const [reading, setReading] = useState(0);
   const [err, setErr] = useState<string | null>(null);
@@ -412,15 +413,17 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
   const resolveRep = async (key: string, area: string, base?: Draft) => {
     const d = base ?? draftsRef.current.find(x => x.key === key);
     if (!d) return;
+    const mkt = repKindRef.current === 'mkt' && !d.bot;
     try {
       const r = await api<{ area: string; rep: Rep | null; repWhy: Draft['repWhy']; repCandidates: Rep[]; repNote: string | null }>('/import/rep-for-area', {
         method: 'POST',
-        body: JSON.stringify({ area, itemIds: d.lines.map(l => l.itemId).filter(Boolean), sender: d.sender }),
+        // «مسوقين»: صاحب المنطقة من مسوقي الفريق بدل العلميين
+        body: JSON.stringify({ area, itemIds: d.lines.map(l => l.itemId).filter(Boolean), sender: d.sender, kind: mkt ? 'mkt' : undefined }),
       });
-      if (r.rep) setTeam(prev => (prev.some(p => p.id === r.rep!.id) ? prev : [...prev, r.rep!]));
-      // «مسوقين»: الاختيار بالمنطقة للعلميين فقط ⇒ لا يُغيَّر المندوب، المستخدم يختار
-      const manualOnly = repKindRef.current === 'mkt';
-      setDrafts(ds => ds.map(x => (x.key !== key ? x : manualOnly ? { ...x, areaName: r.area || area } : {
+      // تبدّل الزر أثناء الطلب ⇒ النتيجة لنوع قديم، تُهمل
+      if ((repKindRef.current === 'mkt') !== mkt) return;
+      if (r.rep && !mkt) setTeam(prev => (prev.some(p => p.id === r.rep!.id) ? prev : [...prev, r.rep!]));
+      setDrafts(ds => ds.map(x => (x.key !== key ? x : {
         ...x,
         areaName: r.area || area,
         repCandidates: r.repCandidates ?? [],
@@ -431,6 +434,9 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
       })));
     } catch { /* يبقى الاختيار اليدوي */ }
   };
+
+  const resolveRepRef = useRef(resolveRep);
+  resolveRepRef.current = resolveRep;
 
   // المندوبون = علميّو فريق صاحب الحساب كما أعادهم الخادم (بلا مسوقين)؛ قائمة الصفحة احتياط فقط
   const repOptions = team.length ? team : reps;
@@ -444,8 +450,8 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
     try { localStorage.setItem(REP_KIND_KEY, next); } catch { /* يبقى للجلسة */ }
     const open = (d: Draft) => !(d.state === 'done' || d.state === 'warn' || d.state === 'saving' || d.bot);
     const clear = new Set(draftsRef.current.filter(d => open(d) && outOfKind(d.repUserId, next)).map(d => d.key));
-    // رجوع للعلميين/التلقائي ⇒ صاحب المنطقة يُختار من جديد لما بقي بلا مندوب
-    const reResolve = next === 'mkt' ? [] : draftsRef.current.filter(d => open(d) && d.areaName.trim() && (clear.has(d.key) || !d.repUserId));
+    // صاحب المنطقة يُختار من جديد بالنوع الجديد لما بقي بلا مندوب (مسوق أو علمي)
+    const reResolve = draftsRef.current.filter(d => open(d) && d.areaName.trim() && (clear.has(d.key) || !d.repUserId));
     if (clear.size) setDrafts(ds => ds.map(d => (clear.has(d.key) ? { ...d, repUserId: null, repName: null, repWhy: null } : d)));
     repKindRef.current = next;
     reResolve.forEach(d => resolveRep(d.key, d.areaName, { ...d, repUserId: null }));
@@ -458,7 +464,7 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
       const next = incoming.map(d => {
         const dupInBatch = d.dupInBatch || Boolean(d.sourceHash && hashes.has(d.sourceHash));
         if (d.sourceHash) hashes.add(d.sourceHash);
-        // «مسوقين»: الخادم يختار علمياً فقط ⇒ يُترك المندوب للمستخدم
+        // «مسوقين»: الخادم اختار علمياً عند القراءة ⇒ يُمسح، ثم يُختار المسوق صاحب المنطقة (أدناه)
         const noRep = repKindRef.current === 'mkt' ? { repUserId: null, repName: null, repWhy: null } : {};
         return {
           ...d, ...noRep, mentionedWarehouses: d.mentionedWarehouses ?? [], dupInBatch, include: !dupInBatch && !d.duplicateOf,
@@ -467,6 +473,10 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
       });
       return [...prev, ...next];
     });
+    // «مسوقين»: المسوق صاحب منطقة كل طلبية جديدة
+    if (repKindRef.current === 'mkt') {
+      for (const d of incoming) if (d.areaName?.trim()) resolveRepRef.current(d.key, d.areaName, { ...d, repUserId: null });
+    }
   }, []);
 
   const readText = useCallback(async (text: string) => {
@@ -907,14 +917,15 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
                           onChange={e => patch(d.key, { repUserId: e.target.value ? Number(e.target.value) : null, repWhy: null })}>
                           <option value="">{kind === 'mkt' ? '— اختر المسوق —' : '— المندوب العلمي —'}</option>
                           {kind !== 'mkt' && repList.map(r => <option key={r.id} value={r.id}>{candIds.has(r.id) ? '★ ' : ''}{r.name}</option>)}
-                          {kind === 'mkt' && marketers.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+                          {kind === 'mkt' && [...marketers.filter(r => candIds.has(r.id)), ...marketers.filter(r => !candIds.has(r.id))]
+                            .map(r => <option key={r.id} value={r.id}>{candIds.has(r.id) ? '★ ' : ''}{r.name}</option>)}
                           {kind === 'auto' && kindOn && (
                             <optgroup label="مسوقين">
                               {marketers.filter(m => !repList.some(r => r.id === m.id)).map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
                             </optgroup>
                           )}
                         </select>
-                        {repHint && kind !== 'mkt' && <small className="vi-hint">{repHint}</small>}
+                        {repHint && <small className="vi-hint">{repHint}</small>}
                       </div>
                     </div>
 

@@ -618,7 +618,16 @@ export async function repForArea(reqUser, body) {
   const sender = cleanText(body?.sender, 80) || null;
   const learned = sender ? await learnedSenders(viewer, [sender]) : new Map();
   const itemIds = (Array.isArray(body?.itemIds) ? body.itemIds : []).map(Number).filter(n => Number.isInteger(n) && n > 0);
-  const r = chooseRep(ctx, { viewerId: viewer.id, area, itemIds, sender, learned });
+  // زر «مسوقين» في اللوحة: نفس القاعدة (صاحب المنطقة، وتحسمه الايتمات إن تعدّد) على مسوقي الفريق ومناطقهم
+  let pickCtx = ctx;
+  const mkt = body?.kind === 'mkt';
+  if (mkt) {
+    const list = (await loadMarketers(viewer)).map(u => ({ ...u, role: 'scientific_rep' }));
+    const team = { ids: new Set(list.map(u => u.id)), list, index: buildRepIndex(list) };
+    pickCtx = { ...ctx, team, repScope: await loadRepScope(team, ctx.areaGraph) };
+  }
+  const r = chooseRep(pickCtx, { viewerId: viewer.id, area, itemIds, sender, learned });
+  if (mkt && !r.rep && r.repCandidates.length === 0) r.repNote = area ? `«${area}» غير معيّنة لمسوق في فريقك` : 'لم تُعرف المنطقة';
   return {
     area,
     rep: r.rep ? { id: r.rep.id, name: r.rep.name } : null,
