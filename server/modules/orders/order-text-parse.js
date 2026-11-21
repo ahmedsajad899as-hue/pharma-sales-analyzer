@@ -320,6 +320,15 @@ const UNIT_WRAP_QTY_END = new RegExp(String.raw`\s${COUNT_UNIT}\s*(\d+)\s*${COUN
 // الوحدة (أو البونص «10+1») إلزامية: رقم وحده في أول السطر قد يكون جزءاً من الاسم.
 const UNIT_QTY_START = new RegExp(String.raw`^(\d+)\s*(?:\+\s*(\d+)\s*)?${COUNT_UNIT}\s+(?=\S)`, 'i');
 const PLUS_QTY_START = /^(\d+)\s*\+\s*(\d+)\s+(?=\S)/;
+// «Amoklavin 20p 1g»، «Amoklavin 20p 625» — الكمية بوحدتها **بين** العلامة والجرعة
+// (طلبية كربلاء، 2026-11-21). الوحدة إلزامية: رقم بلا وحدة في وسط السطر جرعة.
+// والقوس كذلك «Amoklavin (20) 1g».
+const UNIT_QTY_MID = new RegExp(String.raw`\s(\d+)\s*${COUNT_UNIT}\s+(?=\S)`, 'i');
+const PAREN_QTY_MID = new RegExp(String.raw`\s*\(\s*(\d+)\s*(?:\+\s*(\d+)\s*)?${COUNT_UNIT}?\s*\)\s+(?=\S)`, 'i');
+// ما بعد الكمية الوسطى جرعة/شكل قصير («1g»، «625»، «بخاخ»)، لا بقية جملة — رسائل فايبر
+// «تم سحب amoklavine 1g 30 قطعة عن طريق مذخر …» لها قارئ جُمَل خاص بها.
+const MID_TAIL_STOP_RE = /(?:^|\s)(?:مذخر|مذاخر|صيدلي[ةه]|ص|من|عن|ل|لـ|الى|إلى|طريق|تم)(?:\s|$)/;
+const shortMidTail = (t) => t.trim().split(/\s+/).length <= 3 && !MID_TAIL_STOP_RE.test(t);
 
 /**
  * يقرأ الكمية من سطر صنف حين يحدّدها **الشكل** بلا لبس: بين قوسين، أو «ك+ب»،
@@ -340,6 +349,11 @@ export function parseItemLine(line) {
     quantity = Number(m[1]); name = s.slice(0, m.index);
   } else if ((m = s.match(UNIT_QTY_START)) || (m = s.match(PLUS_QTY_START))) {
     quantity = Number(m[1]); name = s.slice(m[0].length);
+    if (m[2] != null) bonus = Number(m[2]);
+  } else if (((m = s.match(PAREN_QTY_MID)) || (m = s.match(UNIT_QTY_MID))) && m.index > 0
+      && shortMidTail(s.slice(m.index + m[0].length))) {
+    // ما قبل الكمية + ما بعدها = الاسم بجرعته («Amoklavin 1g»).
+    quantity = Number(m[1]); name = `${s.slice(0, m.index)} ${s.slice(m.index + m[0].length)}`;
     if (m[2] != null) bonus = Number(m[2]);
   } else {
     return null;

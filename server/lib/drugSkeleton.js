@@ -8,8 +8,8 @@
 //
 // غير نفس هيكل أسماء الأشخاص (group-context.js) عمداً: «ال» في أول اسم دواء جزء منه
 // («الداكتون» = Aldactone)، وx = KS، وc/g تتبعان الحرف بعدهما (cetam = سيتام، gero = جيرو).
-// الحروف الملتبسة في اللاتيني تُولّد أكثر من هيكل (g قبل e/i = ج أو ك، s بين صائتين =
-// س أو ز «روزوفاستاتين»، ch = ك أو ش)، ويكفي أن يطابق العربيُّ أحدها.
+// الحروف الملتبسة في اللاتيني تُولّد أكثر من هيكل (g قبل e/i = ج أو ك، s بين صائتين أو
+// آخر الكلمة = س أو ز «روزوفاستاتين»/«تينتيز»، ch = ك أو ش)، ويكفي أن يطابق العربيُّ أحدها.
 // نقي — اختباره في scripts/test-order-text-parse.mjs.
 // ════════════════════════════════════════════════════════════════════════════
 
@@ -60,7 +60,8 @@ export function latinSkeletons(word) {
     if (ch === 'c') { add(SOFT.test(nx) ? 'S' : 'K'); continue; }
     if (ch === 'g') { if (SOFT.test(nx)) add('J', 'K'); else add('K'); continue; }
     if (ch === 's') {
-      const between = i > 0 && VOWEL.test(w[i - 1]) && VOWEL.test(nx);
+      // بين صائتين («Rosuva» = روزوفا) أو آخر الكلمة بعد صائت («Tinnitus» = تينتيز).
+      const between = i > 0 && VOWEL.test(w[i - 1]) && (VOWEL.test(nx) || nx === '');
       if (between) add('S', 'Z'); else add('S');
       continue;
     }

@@ -333,7 +333,8 @@ check('منطقة الموديل غير المذكورة في سطر المذخ�
   const cat = [
     { id: 1, name: 'DAYTRIX ( CEFTRIAXONE ) 1G IM' }, { id: 2, name: 'DAYTRIX ( CEFTRIAXONE ) 1G IV' },
     { id: 3, name: 'SYCOCETAM SYRUP' }, { id: 4, name: 'SYCOCETAM 500MG TAB' },
-    { id: 5, name: 'TINTEEZ 10MG TAB' }, { id: 6, name: 'GEROLIN 20 CAP' },
+    // الاسمان الحقيقيان من كتالوج الإنتاج (لقطة صاحب المشروع): «تينتيز» = Tinnitus.
+    { id: 5, name: 'Tinnitus Ellez 30 cap' }, { id: 6, name: 'Gerolin 500mg' },
     { id: 7, name: 'Zantac 150mg' }, { id: 8, name: 'Panadol extra' }, { id: 9, name: 'Rosuvastatin 10mg' },
   ];
   const link = (n, c = cat) => { const r = brandDoseFallback(n, c); return r?.confidence === 'high' ? r.canonicalItem.id : null; };
@@ -343,8 +344,8 @@ check('منطقة الموديل غير المذكورة في سطر المذخ�
   check('«ديتركس» بلا ربط لكن باقتراحين', brandDoseFallback('ديتركس', cat)?.suggestions?.map(s => s.id), [1, 2]);
   check('«سيكوسيتام شراب» ← SYCOCETAM SYRUP', link('سيكوسيتام شراب'), 3);
   check('«شراب سيكوسيتام» (الشكل أولاً)', link('شراب سيكوسيتام'), 3);
-  check('«تينتيز» ← TINTEEZ', link('تينتيز'), 5);
-  check('«جيرولين» ← GEROLIN', link('جيرولين'), 6);
+  check('«تينتيز» ← Tinnitus Ellez (s آخر الكلمة = ز)', link('تينتيز'), 5);
+  check('«جيرولين» ← Gerolin 500mg', link('جيرولين'), 6);
   check('«زنتاك» ← Zantac', link('زنتاك'), 7);
   check('«بانادول» ← Panadol', link('بانادول'), 8);
   check('«روزوفاستاتين» (s بين صائتين = ز)', link('روزوفاستاتين'), 9);
@@ -353,6 +354,31 @@ check('منطقة الموديل غير المذكورة في سطر المذخ�
   check('كلمة عربية قصيرة «النور» ⇒ لا شيء', brandDoseFallback('النور', cat), null);
   check('اللاتيني «Daytrix iv» يُحسم بطريقة الإعطاء أيضاً', link('Daytrix iv'), 2);
   check('«Daytrix iv» لا يُربط بـIM وحده', link('Daytrix iv', [cat[0]]), null);
+}
+
+// 2026-11-21: طلبية كربلاء (Ali Aziz Shihab) — الكمية بوحدتها بين العلامة والجرعة، و1g = 1000.
+{
+  const t = 'Amoklavin 20p 1g\nAmoklavin 20p 625\nصيدلية جود كربلاء\nتم التوفير من قبل الصيدلاني';
+  const { header, itemLines } = parseOrderText(t);
+  check('كربلاء: الصيدلية', header.pharmacy, 'جود كربلاء');
+  check('كربلاء: الأصناف والكميات', itemLines.map(parseItemLine), [
+    { name: 'Amoklavin 1g', quantity: 20, bonus: null },
+    { name: 'Amoklavin 625', quantity: 20, bonus: null },
+  ]);
+  check('كربلاء: صفوف المراجعة المخزّنة تُشفى عند الفتح', run(t, [
+    { item: 'Amoklavin 20p 1g', quantity: null, pharmacy: 'جود كربلاء' },
+    { item: 'Amoklavin 20p 625', quantity: null, pharmacy: 'جود كربلاء' },
+  ]).map(r => [r.item, r.quantity]), [['Amoklavin 1g', 20], ['Amoklavin 625', 20]]);
+  check('«Amoklavin 1g» ← 1000MG', fb3('Amoklavin 1g'), ['high', 31]);
+  check('«Amoklavin 625» ← 625 500 125MG', fb3('Amoklavin 625'), ['high', 30]);
+  check('«Amoklavin (20) 1g» قوس في الوسط', parseItemLine('Amoklavin (20) 1g'), { name: 'Amoklavin 1g', quantity: 20, bonus: null });
+  check('«Nasomista 20 ق بخاخ»', parseItemLine('Nasomista 20 ق بخاخ'), { name: 'Nasomista بخاخ', quantity: 20, bonus: null });
+  check('«Amoklavin 1g 20p» (الترتيب القديم) يبقى', parseItemLine('Amoklavin 1g 20p'), { name: 'Amoklavin 1g', quantity: 20, bonus: null });
+  check('رقم بلا وحدة في الوسط جرعة لا كمية', parseItemLine('Amoklavin 625 1g'), null);
+  check('«Pantoprazole 40 Pfizer» لا تُقرأ «P» وحدة', parseItemLine('Pantoprazole 40 Pfizer'), null);
+  check('جملة فايبر «… 30 قطعة عن طريق مذخر …» ليست كمية وسطى',
+    parseItemLine('تم سحب amoklavine 1g 30 قطعة عن طريق مذخر ادوية ارض البنفسج'), null);
+  check('«Daytrix 10p 1g IV» ذيل كلمتين', parseItemLine('Daytrix 10p 1g IV'), { name: 'Daytrix 1g IV', quantity: 10, bonus: null });
 }
 
 console.log(failed ? `\n✗ ${failed} فشل` : '\n✓ كلها ناجحة');
