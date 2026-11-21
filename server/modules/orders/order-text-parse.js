@@ -316,6 +316,10 @@ const UNIT_QTY_END = new RegExp(String.raw`(?:^|\s)(\d+)\s*${COUNT_UNIT}\s*$`, '
 const UNIT_FIRST_QTY_END = new RegExp(String.raw`\s${COUNT_UNIT}\s*(\d+)\s*$`, 'i');
 // «Amikaver 5 amp عدد50قطعة» — الرقم بين وحدتين ملتصقاً بهما (كروب البصرة، 2026-11-19).
 const UNIT_WRAP_QTY_END = new RegExp(String.raw`\s${COUNT_UNIT}\s*(\d+)\s*${COUNT_UNIT}\s*$`, 'i');
+// «10 ق تينتيز»، «50 ق ديتركس iv» — الكمية ووحدتها **قبل** الاسم (كروب ميسان، 2026-11-21).
+// الوحدة (أو البونص «10+1») إلزامية: رقم وحده في أول السطر قد يكون جزءاً من الاسم.
+const UNIT_QTY_START = new RegExp(String.raw`^(\d+)\s*(?:\+\s*(\d+)\s*)?${COUNT_UNIT}\s+(?=\S)`, 'i');
+const PLUS_QTY_START = /^(\d+)\s*\+\s*(\d+)\s+(?=\S)/;
 
 /**
  * يقرأ الكمية من سطر صنف حين يحدّدها **الشكل** بلا لبس: بين قوسين، أو «ك+ب»،
@@ -334,6 +338,9 @@ export function parseItemLine(line) {
     quantity = Number(m[1]); bonus = Number(m[2]); name = s.slice(0, m.index);
   } else if ((m = s.match(UNIT_WRAP_QTY_END)) || (m = s.match(UNIT_QTY_END)) || (m = s.match(UNIT_FIRST_QTY_END))) {
     quantity = Number(m[1]); name = s.slice(0, m.index);
+  } else if ((m = s.match(UNIT_QTY_START)) || (m = s.match(PLUS_QTY_START))) {
+    quantity = Number(m[1]); name = s.slice(m[0].length);
+    if (m[2] != null) bonus = Number(m[2]);
   } else {
     return null;
   }

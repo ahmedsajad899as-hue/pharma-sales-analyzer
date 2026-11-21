@@ -297,5 +297,31 @@ check('منطقة الموديل غير المذكورة في سطر المذخ�
   check('«Dikloron gel» ← Dikloron 50 g Gel', brandDoseFallback('Dikloron gel', catB)?.canonicalItem?.id, 3);
 }
 
+// 2026-11-21: كروب «مكتب النسق _ ميسان» (المحلل وحده) — الكمية ووحدتها قبل اسم عربي.
+// parseItemLine كان يُعيد null ⇒ المحلل يرفض، وقراءة المراجعة تشترط اسماً لاتينياً ⇒ ضاعت الأربع.
+{
+  const cases = [
+    ['10 ق تينتيز\nص ابن سينا النموذجيه\nد نائل حسين\nم ابن سينا',
+      { pharmacy: 'ابن سينا النموذجيه', warehouse: 'ابن سينا' }, [{ name: 'تينتيز', quantity: 10, bonus: null }]],
+    ['10 ق جيرولين\nص ابن سينا النموذجيه\nم ابن سينا\nد نائل',
+      { pharmacy: 'ابن سينا النموذجيه', warehouse: 'ابن سينا' }, [{ name: 'جيرولين', quantity: 10, bonus: null }]],
+    ['50 ق ديتركس iv\nص القمر\nد عصام صدام\nمذخر الصيدلي\n@~حيدر عبدالله',
+      { pharmacy: 'القمر', warehouse: 'الصيدلي' }, [{ name: 'ديتركس iv', quantity: 50, bonus: null }]],
+    ['20 ق سيكوسيتام شراب\nص للحسنين\nمذخر المعتصم\n@~حيدر عبدالله',
+      { pharmacy: 'للحسنين', warehouse: 'المعتصم' }, [{ name: 'سيكوسيتام شراب', quantity: 20, bonus: null }]],
+  ];
+  for (const [t, head, items] of cases) {
+    const { header, itemLines } = parseOrderText(t);
+    check(`ميسان: ترويسة «${items[0].name}»`, { pharmacy: header.pharmacy, warehouse: header.warehouse }, head);
+    check(`ميسان: صنف «${items[0].name}»`, itemLines.map(parseItemLine), items);
+  }
+  check('«10+1 ق Pandev» بونص قبل الاسم', parseItemLine('10+1 ق Pandev'), { name: 'Pandev', quantity: 10, bonus: 1 });
+  check('«10+1 Pandev» بونص بلا وحدة', parseItemLine('10+1 Pandev'), { name: 'Pandev', quantity: 10, bonus: 1 });
+  check('«10 علبة بانادول»', parseItemLine('10 علبة بانادول'), { name: 'بانادول', quantity: 10, bonus: null });
+  check('رقم وحده أول السطر بلا وحدة ⇒ لا حسم', parseItemLine('5 FU cream'), null);
+  check('«10 pandev» لا تُقرأ «p» وحدة', parseItemLine('10 pandev'), null);
+  check('«10 ق Amikavir 5 amp» حجم العبوة يبقى بالاسم', parseItemLine('10 ق Amikavir 5 amp'), { name: 'Amikavir 5 amp', quantity: 10, bonus: null });
+}
+
 console.log(failed ? `\n✗ ${failed} فشل` : '\n✓ كلها ناجحة');
 process.exit(failed ? 1 : 0);
