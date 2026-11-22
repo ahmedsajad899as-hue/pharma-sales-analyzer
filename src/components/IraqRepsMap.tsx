@@ -800,15 +800,45 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
     if (exporting) return;
     setExporting(true);
     try {
-      const XLSX = await import('xlsx');
+      // xlsx-js-style: نفس واجهة xlsx مع تنسيق الخلايا (ألوان + فواصل الآلاف) — محمَّلة أصلاً في صفحة التقارير
+      const XLSX = await import('xlsx-js-style');
       // fmtVal يحوّل لعملة العرض ويقرّب — نأخذ الرقم منه كي يطابق الملف الشاشة
       const toNum = (n: number | null | undefined) => (n == null ? null : Number(fmtVal(n).replace(/[^\d-]/g, '')) || 0);
       const pct = (a: number, b: number) => (b > 0 ? Math.round((a / b) * 1000) / 10 : null);
       const cur = currencyLabel;
       const repHead = marketers ? 'المسوق' : 'المندوب';
-      const sheet = (rows: any[][], widths: number[]) => {
+      // لون خفيف لكل محافظة (سطر المجموع أغمق قليلاً وعريض)، وفواصل آلاف للمبالغ والكميات
+      const PALETTE = [['EEF4FF', 'D9E5FC'], ['ECFAF2', 'D2F1DF'], ['FFF8EA', 'FCE9C6'], ['F5F0FF', 'E6DCFC'], ['FFF1F4', 'FBDDE4'], ['EBFAFC', 'CDEFF5']];
+      const border = { style: 'thin', color: { rgb: 'D5DCE6' } };
+      const sheet = (rows: any[][], widths: number[], o: { nums: number[]; pcts?: number[]; groupCol?: number; strong?: (r: any[]) => boolean; totalLast?: boolean }) => {
         const ws = XLSX.utils.aoa_to_sheet(rows);
         ws['!cols'] = widths.map(w => ({ wch: w }));
+        const width = rows[0].length;
+        let g = -1; let prev: unknown = Symbol();
+        rows.forEach((row, ri) => {
+          let fill: string | undefined; let bold = false; let color = '1E293B';
+          if (ri === 0) { fill = '1E293B'; bold = true; color = 'FFFFFF'; }
+          else if (o.totalLast && ri === rows.length - 1) { fill = 'CBD5E1'; bold = true; }
+          else if (o.groupCol != null) {
+            if (row[o.groupCol] !== prev) { g++; prev = row[o.groupCol]; }
+            const strong = !!o.strong?.(row);
+            fill = PALETTE[g % PALETTE.length][strong ? 1 : 0]; bold = strong;
+          }
+          for (let ci = 0; ci < width; ci++) {
+            const addr = XLSX.utils.encode_cell({ r: ri, c: ci });
+            // خلية فارغة تأخذ اللون أيضاً كي يبدو سطر المحافظة متصلاً
+            const cell = ws[addr] ?? (ws[addr] = { t: 's', v: '' });
+            const numFmt = ri > 0 && cell.t === 'n' ? (o.nums.includes(ci) ? '#,##0' : o.pcts?.includes(ci) ? '0.0' : undefined) : undefined;
+            if (numFmt) cell.z = numFmt;
+            cell.s = {
+              font: { name: 'Arial', sz: 11, bold, color: { rgb: color } },
+              ...(fill ? { fill: { patternType: 'solid', fgColor: { rgb: fill } } } : {}),
+              alignment: { vertical: 'center', horizontal: ri === 0 ? 'center' : cell.t === 'n' ? 'left' : 'right', readingOrder: 2 },
+              border: { top: border, bottom: border, left: border, right: border },
+              ...(numFmt ? { numFmt } : {}),
+            };
+          }
+        });
         return ws;
       };
       const wb = XLSX.utils.book_new();
@@ -825,7 +855,9 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
         }
       }
       s1.push(['المجموع', '', '', '', '', '', toNum(totals.value), ...(hasCond ? [toNum(totals.cond), pct(totals.cond, totals.value)] : []), '']);
-      XLSX.utils.book_append_sheet(wb, sheet(s1, [14, 20, 14, 24, 14, 9, 16, ...(hasCond ? [16, 12] : []), 30]), 'المحافظات والمندوبين');
+      XLSX.utils.book_append_sheet(wb, sheet(s1, [14, 20, 16, 24, 16, 10, 18, ...(hasCond ? [18, 14] : []), 30], {
+        nums: hasCond ? [6, 7] : [6], pcts: hasCond ? [8] : [], groupCol: 0, strong: r => r[2] === 'مجموع المحافظة', totalLast: true,
+      }), 'المحافظات والمندوبين');
 
       // 2) مبيع ولكوديشن كل شركة في كل محافظة
       if (!marketers) {
@@ -834,7 +866,7 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
           if (co.value === 0 && co.cond === 0) continue;
           s2.push([c.name, co.name, toNum(co.value), ...(hasCond ? [toNum(co.cond), pct(co.cond, co.value)] : [])]);
         }
-        if (s2.length > 1) XLSX.utils.book_append_sheet(wb, sheet(s2, [14, 20, 16, 16, 12]), 'الشركات بالمحافظات');
+        if (s2.length > 1) XLSX.utils.book_append_sheet(wb, sheet(s2, [14, 20, 18, 18, 14], { nums: [2, 3], pcts: [4], groupCol: 0 }), 'الشركات بالمحافظات');
       }
 
       // 3) ايتمات كل مندوب في محافظته — نفس رد نافذة «الفرق»
@@ -861,14 +893,14 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
             }
           }
         }
-        if (s3.length > 1) XLSX.utils.book_append_sheet(wb, sheet(s3, [14, 20, 22, 28, 14, 12, 18, 12, 16, 12, 10]), 'ايتمات المندوبين');
+        if (s3.length > 1) XLSX.utils.book_append_sheet(wb, sheet(s3, [14, 20, 22, 28, 14, 14, 20, 14, 18, 14, 11], { nums: [5, 6, 7, 8, 9], pcts: [10], groupCol: 0 }), 'ايتمات المندوبين');
       }
 
       // 4) مناطق بلا محافظة معروفة — خارج المجموع
       if (unplaced.length) {
         const s4: any[][] = [['المنطقة', `المبيع (${cur})`, `اللكوديشن (${cur})`]];
         for (const x of unplaced) s4.push([x.name, toNum(x.total), x.cond ? toNum(x.cond) : null]);
-        XLSX.utils.book_append_sheet(wb, sheet(s4, [22, 16, 16]), 'بلا محافظة');
+        XLSX.utils.book_append_sheet(wb, sheet(s4, [22, 18, 18], { nums: [1, 2] }), 'بلا محافظة');
       }
 
       const period = monthKey === 'custom' ? `${fromDate}_${toDate}` : monthKey;
