@@ -874,7 +874,7 @@ interface WarehouseBreakdown { name: string; orderCount: number; value: number; 
 // صف واحد من القائمة الثانوية «كل المندوبين العلميين».
 interface RepItemNet { itemId: number; itemName: string; qty: number; value: number; }
 interface RepItemTargetRow { itemId: number; itemName: string; target: number; }
-interface RepWarehouseSummary { id: number; name: string; netValue: number; officeOrderCount: number; officeValue: number; warehouseOrderCount: number; warehouses: WarehouseBreakdown[]; byClass?: Record<string, number>; items?: RepItemNet[]; targets?: RepItemTargetRow[]; }
+interface RepWarehouseSummary { id: number; name: string; netValue: number; officeOrderCount: number; officeValue: number; warehouseOrderCount: number; warehouseValue?: number; warehouses: WarehouseBreakdown[]; byClass?: Record<string, number>; items?: RepItemNet[]; targets?: RepItemTargetRow[]; }
 interface BreakdownRow { name: string; repName?: string; totalQty: number; totalValue: number; isZero?: boolean; companyName?: string; }
 interface CommReport {
   repName: string;
@@ -1891,6 +1891,8 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
     : [];
   const repClassValue = (r: RepWarehouseSummary, col: CustomerClass) =>
     ALL_CLASSES.filter(k => classBucket(k) === col).reduce((s, k) => s + (r.byClass?.[k] ?? 0), 0);
+  // صافي قيمة طلبيات المذخر — رد قديم من المخبأ بلا warehouseValue يُجمع من المذاخر
+  const repWarehouseValue = (r: RepWarehouseSummary) => r.warehouseValue ?? r.warehouses.reduce((s, w) => s + (w.value || 0), 0);
   const allRepsAppliedLabels = (withClass = true) => {
     const ex = allRepsExclusions();
     const cls = withClass && showClassTable;
@@ -4002,11 +4004,12 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
       const cv = (n: number) => +convertVal(n).toFixed(2);
       const companyById = new Map(sciReps.map(r => [r.id, r.company || 'بدون شركة']));
       const header = ['#', 'الشركة', repColumnLabel, `صافي المبيع (${fileCurrencyMode === 'USD' ? '$' : 'د.ع'})`,
-        ...warehouseClassCols.map(([, label]) => label), 'طلبيات المكتب', 'طلبيات المذخر', 'الإجمالي', 'أسماء المذاخر'];
+        ...warehouseClassCols.map(([, label]) => label), 'طلبيات المكتب', `مبيع المكتب (${fileCurrencyMode === 'USD' ? '$' : 'د.ع'})`,
+        'طلبيات المذخر', `مبيع المذخر (${fileCurrencyMode === 'USD' ? '$' : 'د.ع'})`, 'الإجمالي', 'أسماء المذاخر'];
       const body = cols.map((r, i) => [
         i + 1, companyById.get(r.id) || '', r.name, cv(r.netValue),
         ...warehouseClassCols.map(([k]) => cv(repClassValue(r, k))),
-        r.officeOrderCount, r.warehouseOrderCount,
+        r.officeOrderCount, cv(r.officeValue), r.warehouseOrderCount, cv(repWarehouseValue(r)),
         r.officeOrderCount + r.warehouseOrderCount,
         r.warehouses.map(w => `${w.name} (${w.orderCount})`).join('، '),
       ]);
@@ -4014,10 +4017,13 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
       const applied = allRepsAppliedLabels();
       if (applied.length) aoa.push([], ['', 'مطبَّق من التحليل:', applied.join(' · ')]);
       const ws = XLSX.utils.aoa_to_sheet(aoa);
-      styleSheet(ws, aoa, [5, 18, 26, 16, ...warehouseClassCols.map(() => 16), 14, 14, 12, 55]);
-      // فواصل الآلاف لأعمدة القيمة: صافي المبيع (index 3) + أعمدة التصنيف بعده
+      styleSheet(ws, aoa, [5, 18, 26, 16, ...warehouseClassCols.map(() => 16), 14, 16, 14, 16, 12, 55]);
+      // فواصل الآلاف لأعمدة القيمة: صافي المبيع (index 3) + أعمدة التصنيف بعده + مبيع المكتب والمذخر
+      const officeValCol = 3 + warehouseClassCols.length + 2;
       for (let r = 1; r <= body.length; r++) {
         for (let c = 3; c <= 3 + warehouseClassCols.length; c++) applyNumFmt(ws, XLSX.utils.encode_cell({ r, c }));
+        applyNumFmt(ws, XLSX.utils.encode_cell({ r, c: officeValCol }));
+        applyNumFmt(ws, XLSX.utils.encode_cell({ r, c: officeValCol + 2 }));
       }
       XLSX.utils.book_append_sheet(wb, ws, sanitizeSheetName(allRepsLabel));
     }
@@ -6787,7 +6793,7 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                     <thead>
                       <tr>
-                        {['#', repColumnLabel, 'صافي المبيع', ...warehouseClassCols.map(([, label]) => label), 'طلبيات المكتب', 'طلبيات المذخر', 'الإجمالي', ''].map((h, hi, all) => (
+                        {['#', repColumnLabel, 'صافي المبيع', ...warehouseClassCols.map(([, label]) => label), 'طلبيات المكتب', 'مبيع المكتب', 'طلبيات المذخر', 'مبيع المذخر', 'الإجمالي', ''].map((h, hi, all) => (
                           <th key={hi} style={{
                             ...listTh,
                             textAlign: hi === 1 ? 'right' : 'center',
@@ -6815,13 +6821,15 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
                                 return <td key={k} style={{ ...listTd, fontWeight: 600, background: v < 0 ? 'rgba(239, 68, 68, 0.12)' : rowBg }}>{v !== 0 ? fmtValSigned(v) : ''}</td>;
                               })}
                               <td style={{ ...listTd, fontWeight: 600, background: rowBg }}>{r.officeOrderCount > 0 ? fmt(r.officeOrderCount) : ''}</td>
+                              <td style={{ ...listTd, fontWeight: 600, color: '#334155', background: r.officeValue < 0 ? 'rgba(239, 68, 68, 0.12)' : rowBg, whiteSpace: 'nowrap' }}>{r.officeValue !== 0 ? fmtValSigned(r.officeValue) : ''}</td>
                               <td style={{ ...listTd, fontWeight: 600, background: rowBg }}>{r.warehouseOrderCount > 0 ? fmt(r.warehouseOrderCount) : ''}</td>
+                              <td style={{ ...listTd, fontWeight: 600, color: '#334155', background: repWarehouseValue(r) < 0 ? 'rgba(239, 68, 68, 0.12)' : rowBg, whiteSpace: 'nowrap' }}>{repWarehouseValue(r) !== 0 ? fmtValSigned(repWarehouseValue(r)) : ''}</td>
                               <td style={{ ...listTd, fontWeight: 800, background: '#f1f5f9' }}>{fmt(r.officeOrderCount + r.warehouseOrderCount)}</td>
                               <td style={{ ...listTd, color: '#94a3b8', fontSize: 11, background: rowBg }}>{isExpanded ? '▲' : '▼'}</td>
                             </tr>
                             {isExpanded && (
                               <tr>
-                                <td colSpan={7 + warehouseClassCols.length} style={{ ...listTd, background: '#f8fafc', padding: '10px 16px', textAlign: 'right' }}>
+                                <td colSpan={9 + warehouseClassCols.length} style={{ ...listTd, background: '#f8fafc', padding: '10px 16px', textAlign: 'right' }}>
                                   {r.warehouses.length === 0 ? (
                                     <span style={{ color: '#94a3b8', fontSize: 12 }}>لا توجد طلبيات عبر مذاخر لهذا المندوب</span>
                                   ) : (

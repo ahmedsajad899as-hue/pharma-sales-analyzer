@@ -2815,6 +2815,8 @@ export async function getWarehouseSummaryForReps(repIds, query = {}, viewerId = 
         officeOrderCount: r.bySource?.office.orderCount ?? 0,
         officeValue: r.bySource?.office.totalValue ?? 0,
         warehouseOrderCount: r.bySource?.mercato.orderCount ?? 0,
+        // صافي قيمة طلبيات المذخر (ميركاتو) — يُعرض بجانب عددها في القائمة
+        warehouseValue: r.bySource?.mercato.totalValue ?? 0,
         warehouses: r.warehouses ?? [],
         // صافي كل تصنيف «معلومات الزبون» — أعمدة علمي/مذاخر/تجاري/فارمسي حين يُفعَّل زر التصنيف.
         byClass: Object.fromEntries(Object.entries(r.byCustomerClass ?? {}).map(([k, c]) => [k, c.totalValue])),
@@ -2823,7 +2825,7 @@ export async function getWarehouseSummaryForReps(repIds, query = {}, viewerId = 
         targets: [],
       };
     } catch {
-      return { id, name: `#${id}`, netValue: 0, officeOrderCount: 0, officeValue: 0, warehouseOrderCount: 0, warehouses: [], byClass: {}, items: [], targets: [] };
+      return { id, name: `#${id}`, netValue: 0, officeOrderCount: 0, officeValue: 0, warehouseOrderCount: 0, warehouseValue: 0, warehouses: [], byClass: {}, items: [], targets: [] };
     }
   }));
   await attachItemTargets(results, query.targetPeriod, viewerId);
