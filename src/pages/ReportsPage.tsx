@@ -1214,6 +1214,14 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
   // شكل عرض «حسب الايتم»: مصفوفة (مندوب × ايتم بشاشة/صورة واحدة) أو تفصيلي (صف لكل ايتم).
   const [itemsLayout, setItemsLayout] = useState<'matrix' | 'detail'>('matrix');
   const [itemsCell, setItemsCell] = useState<'qty' | 'value'>('qty');
+  // المصفوفة: إظهار التارگت بجانب رقم المبيع («120 / 200») أو المبيع وحده
+  const [itemsShowTarget, setItemsShowTarget] = useState<boolean>(() => {
+    try { return localStorage.getItem('rpt_itemsShowTarget') !== '0'; } catch { return true; }
+  });
+  const toggleItemsShowTarget = () => setItemsShowTarget(v => {
+    try { localStorage.setItem('rpt_itemsShowTarget', v ? '0' : '1'); } catch { /* ignore */ }
+    return !v;
+  });
   const itemsMatrixRef = useRef<HTMLDivElement>(null);
   const [itemsImgBusy, setItemsImgBusy] = useState(false);
   // زر TL: يبدّل بين مندوبي المبيع العاديين (الافتراضي، بلا قادة فرق) وقادة الفرق أنفسهم
@@ -6633,6 +6641,12 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
                             ))}
                           </div>
                         )}
+                        {itemsLayout === 'matrix' && itemsCell === 'qty' && hasTargets && (
+                          <button onClick={toggleItemsShowTarget} title={itemsShowTarget ? 'إخفاء التارگت بجانب رقم المبيع' : 'إظهار التارگت بجانب رقم المبيع'}
+                            style={{ ...seg(itemsShowTarget, true), border: '1px solid #cbd5e1', borderRadius: 6 }}>
+                            {itemsShowTarget ? '🎯 إخفاء التارگت' : '🎯 إظهار التارگت'}
+                          </button>
+                        )}
                         <div style={segBox}>
                           {([['matrix', 'مصفوفة'], ['detail', 'تفصيلي']] as const).map(([k, l], i) => (
                             <button key={k} onClick={() => setItemsLayout(k)} style={seg(itemsLayout === k, i === 0)}>{l}</button>
@@ -6670,9 +6684,10 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
                       const mTd: React.CSSProperties = { padding: '5px 6px', textAlign: 'center', border: BORDER, fontSize: 12, color: '#111827', whiteSpace: 'nowrap' };
                       const isEmpty = (c?: Cell) => !c || (c.achieved === 0 && c.value === 0 && c.target === 0);
                       const cellText = (c: Cell) => (itemsCell === 'qty'
-                        ? <>{fmt(c.achieved)}{c.target > 0 && <span style={{ color: '#94a3b8', fontWeight: 400, fontSize: 10.5 }}> / {fmt(c.target)}</span>}</>
+                        ? <>{fmt(c.achieved)}{itemsShowTarget && c.target > 0 && <span style={{ color: '#94a3b8', fontWeight: 400, fontSize: 10.5 }}> / {fmt(c.target)}</span>}</>
                         : <>{valTxt(c.value)}</>);
-                      let n = 0;
+                      // بلا صفوف التيم ليدر (مجاميع الفرق): المندوبون وحدهم مرتَّبون بمبالغهم
+                      const flatReps = groups.flatMap(g => g.reps).sort((a, b) => b.value - a.value);
                       return (
                         <div ref={itemsMatrixRef} style={{ maxHeight: '64vh', overflow: 'auto', border: '1px solid #94a3b8', background: '#fff' }}>
                           <table style={{ borderCollapse: 'collapse', width: '100%' }}>
@@ -6685,35 +6700,18 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
                               </tr>
                             </thead>
                             <tbody>
-                              {groups.map(g => {
-                                const gCells = cellsOf(g.reps.flatMap(r => r.rows));
+                              {flatReps.map((r, ri) => {
+                                const cells = cellsOf(r.rows);
                                 return (
-                                  <Fragment key={g.leader || 'all'}>
-                                    {g.leader && <tr>
-                                      <td style={{ ...mTd, background: '#f8fafc' }} />
-                                      <td style={{ ...mTd, textAlign: 'right', fontWeight: 800, background: '#f8fafc', whiteSpace: 'normal' }}>{g.leader}</td>
-                                      {itemCols.map(([k]) => {
-                                        const c = gCells.get(k);
-                                        return <td key={k} style={{ ...mTd, fontWeight: 800, background: '#f8fafc' }}>{isEmpty(c) ? '' : cellText(c!)}</td>;
-                                      })}
-                                      <td style={{ ...mTd, fontWeight: 800, background: '#f1f5f9' }}>{valTxt(g.value)}</td>
-                                    </tr>}
-                                    {g.reps.map(r => {
-                                      const cells = cellsOf(r.rows);
-                                      n += 1;
-                                      return (
-                                        <tr key={r.rep.id}>
-                                          <td style={{ ...mTd, color: '#64748b' }}>{n}</td>
-                                          <td style={{ ...mTd, textAlign: 'right', fontWeight: 600, whiteSpace: 'normal' }}>{r.rep.name}</td>
-                                          {itemCols.map(([k]) => {
-                                            const c = cells.get(k);
-                                            return <td key={k} style={{ ...mTd, fontWeight: 600 }}>{isEmpty(c) ? '' : cellText(c!)}</td>;
-                                          })}
-                                          <td style={{ ...mTd, fontWeight: 700, background: '#f8fafc' }}>{valTxt(r.value)}</td>
-                                        </tr>
-                                      );
+                                  <tr key={r.rep.id}>
+                                    <td style={{ ...mTd, color: '#64748b' }}>{ri + 1}</td>
+                                    <td style={{ ...mTd, textAlign: 'right', fontWeight: 600, whiteSpace: 'normal' }}>{r.rep.name}</td>
+                                    {itemCols.map(([k]) => {
+                                      const c = cells.get(k);
+                                      return <td key={k} style={{ ...mTd, fontWeight: 600 }}>{isEmpty(c) ? '' : cellText(c!)}</td>;
                                     })}
-                                  </Fragment>
+                                    <td style={{ ...mTd, fontWeight: 700, background: '#f8fafc' }}>{valTxt(r.value)}</td>
+                                  </tr>
                                 );
                               })}
                               <tr>
