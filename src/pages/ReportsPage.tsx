@@ -4004,12 +4004,14 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
       const cv = (n: number) => +convertVal(n).toFixed(2);
       const companyById = new Map(sciReps.map(r => [r.id, r.company || 'بدون شركة']));
       const header = ['#', 'الشركة', repColumnLabel, `صافي المبيع (${fileCurrencyMode === 'USD' ? '$' : 'د.ع'})`,
-        ...warehouseClassCols.map(([, label]) => label), 'طلبيات المكتب', `مبيع المكتب (${fileCurrencyMode === 'USD' ? '$' : 'د.ع'})`,
-        'طلبيات المذخر', `مبيع المذخر (${fileCurrencyMode === 'USD' ? '$' : 'د.ع'})`, 'الإجمالي', 'أسماء المذاخر'];
+        ...warehouseClassCols.map(([, label]) => label), 'طلبيات المكتب', 'طلبيات المذخر', 'الإجمالي', 'أسماء المذاخر'];
+      // نفس خانة الشاشة: العدد وتحته بين قوسين صافي مبيعه (نص بسطرين)
+      const cntVal = (cnt: number, val: number) =>
+        [cnt > 0 ? String(cnt) : '', val !== 0 ? `(${fmtVal(val)})` : ''].filter(Boolean).join('\n');
       const body = cols.map((r, i) => [
         i + 1, companyById.get(r.id) || '', r.name, cv(r.netValue),
         ...warehouseClassCols.map(([k]) => cv(repClassValue(r, k))),
-        r.officeOrderCount, cv(r.officeValue), r.warehouseOrderCount, cv(repWarehouseValue(r)),
+        cntVal(r.officeOrderCount, r.officeValue), cntVal(r.warehouseOrderCount, repWarehouseValue(r)),
         r.officeOrderCount + r.warehouseOrderCount,
         r.warehouses.map(w => `${w.name} (${w.orderCount})`).join('، '),
       ]);
@@ -4017,13 +4019,17 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
       const applied = allRepsAppliedLabels();
       if (applied.length) aoa.push([], ['', 'مطبَّق من التحليل:', applied.join(' · ')]);
       const ws = XLSX.utils.aoa_to_sheet(aoa);
-      styleSheet(ws, aoa, [5, 18, 26, 16, ...warehouseClassCols.map(() => 16), 14, 16, 14, 16, 12, 55]);
-      // فواصل الآلاف لأعمدة القيمة: صافي المبيع (index 3) + أعمدة التصنيف بعده + مبيع المكتب والمذخر
-      const officeValCol = 3 + warehouseClassCols.length + 2;
+      styleSheet(ws, aoa, [5, 18, 26, 16, ...warehouseClassCols.map(() => 16), 16, 16, 12, 55]);
+      // فواصل الآلاف لأعمدة القيمة: صافي المبيع (index 3) + أعمدة التصنيف بعده
+      const officeCol = 4 + warehouseClassCols.length;
+      ws['!rows'] = [{ hpt: 20 }, ...body.map(() => ({ hpt: 32 }))];
       for (let r = 1; r <= body.length; r++) {
         for (let c = 3; c <= 3 + warehouseClassCols.length; c++) applyNumFmt(ws, XLSX.utils.encode_cell({ r, c }));
-        applyNumFmt(ws, XLSX.utils.encode_cell({ r, c: officeValCol }));
-        applyNumFmt(ws, XLSX.utils.encode_cell({ r, c: officeValCol + 2 }));
+        // خانتا الطلبيات: سطران (العدد ثم المبلغ) في الوسط
+        for (const c of [officeCol, officeCol + 1]) {
+          const cell = ws[XLSX.utils.encode_cell({ r, c })];
+          if (cell) cell.s = { ...(cell.s ?? {}), alignment: { ...(cell.s?.alignment ?? {}), wrapText: true, vertical: 'center', horizontal: 'center' } };
+        }
       }
       XLSX.utils.book_append_sheet(wb, ws, sanitizeSheetName(allRepsLabel));
     }
