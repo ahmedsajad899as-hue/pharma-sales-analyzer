@@ -794,6 +794,92 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
     return () => { dead = true; };
   }, [bgOpen, bgNamesKey, token]);
 
+  // ── تصدير إكسل: نفس أرقام الجدول بعملة العرض + الشركات بكل محافظة + ايتمات كل مندوب ──
+  const [exporting, setExporting] = useState(false);
+  const exportExcel = async () => {
+    if (exporting) return;
+    setExporting(true);
+    try {
+      const XLSX = await import('xlsx');
+      // fmtVal يحوّل لعملة العرض ويقرّب — نأخذ الرقم منه كي يطابق الملف الشاشة
+      const toNum = (n: number | null | undefined) => (n == null ? null : Number(fmtVal(n).replace(/[^\d-]/g, '')) || 0);
+      const pct = (a: number, b: number) => (b > 0 ? Math.round((a / b) * 1000) / 10 : null);
+      const cur = currencyLabel;
+      const repHead = marketers ? 'المسوق' : 'المندوب';
+      const sheet = (rows: any[][], widths: number[]) => {
+        const ws = XLSX.utils.aoa_to_sheet(rows);
+        ws['!cols'] = widths.map(w => ({ wch: w }));
+        return ws;
+      };
+      const wb = XLSX.utils.book_new();
+      wb.Workbook = { Views: [{ RTL: true }] };
+
+      // 1) المحافظات والمندوبين كما في الجدول
+      const s1: any[][] = [['المحافظة', 'التيم ليدر', 'السطر', repHead, 'الشركة', 'الحالة', `المبيع (${cur})`, ...(hasCond ? [`اللكوديشن (${cur})`, 'نسبة اللكوديشن %'] : []), 'ملاحظة']];
+      for (const c of nameList) {
+        const n = nameRows.get(norm(c.name));
+        const leader = n?.leader?.name ?? '';
+        s1.push([c.name, leader, 'مجموع المحافظة', '', '', '', toNum(c.total), ...(hasCond ? [toNum(c.cond), pct(c.cond, c.total)] : []), '']);
+        for (const r of n?.reps ?? []) {
+          s1.push([c.name, leader, repHead, r.name, r.company || '', r.active ? 'نشط' : 'غير نشط', toNum(r.sales), ...(hasCond ? [r.cond ? toNum(r.cond) : null, r.sales && r.cond ? pct(r.cond, r.sales) : null] : []), repNotes[r.key] ?? '']);
+        }
+      }
+      s1.push(['المجموع', '', '', '', '', '', toNum(totals.value), ...(hasCond ? [toNum(totals.cond), pct(totals.cond, totals.value)] : []), '']);
+      XLSX.utils.book_append_sheet(wb, sheet(s1, [14, 20, 14, 24, 14, 9, 16, ...(hasCond ? [16, 12] : []), 30]), 'المحافظات والمندوبين');
+
+      // 2) مبيع ولكوديشن كل شركة في كل محافظة
+      if (!marketers) {
+        const s2: any[][] = [['المحافظة', 'الشركة', `المبيع (${cur})`, ...(hasCond ? [`اللكوديشن (${cur})`, 'نسبة اللكوديشن %'] : [])]];
+        for (const c of nameList) for (const co of c.companies) {
+          if (co.value === 0 && co.cond === 0) continue;
+          s2.push([c.name, co.name, toNum(co.value), ...(hasCond ? [toNum(co.cond), pct(co.cond, co.value)] : [])]);
+        }
+        if (s2.length > 1) XLSX.utils.book_append_sheet(wb, sheet(s2, [14, 20, 16, 16, 12]), 'الشركات بالمحافظات');
+      }
+
+      // 3) ايتمات كل مندوب في محافظته — نفس رد نافذة «الفرق»
+      if (!marketersOnly) {
+        let dir: any[] | undefined = FULL_DIR.get(dirKey)?.teams;
+        if (!dir) {
+          const p = new URLSearchParams();
+          latest.current.applyMonth(p);
+          if (fileIds.length) p.set('fileIds', fileKey);
+          const r = await fetch(`/api/province-teams/directory?${p}`, { headers: { Authorization: `Bearer ${token}` } });
+          dir = r.ok ? ((await r.json()).teams ?? []) : [];
+        }
+        const s3: any[][] = [['المحافظة', 'التيم ليدر', repHead, 'الايتم', 'الشركة', 'كمية الشركة بالمحافظة', `قيمة الشركة بالمحافظة (${cur})`, `كمية ${repHead}`, `قيمة ${repHead} (${cur})`, 'التارگت (كمية)', 'الإنجاز %']];
+        for (const t of dir ?? []) {
+          if (norm(t.provinceName) === BAGHDAD) continue;
+          for (const r of t.reps ?? []) {
+            const kind = r.repKind ?? 'scientific';
+            // نفس شرط ظهوره في جدول الأسماء
+            if (repKind && (kind === 'pharmacy') !== marketers) continue;
+            if (!marketers && kind !== 'pharmacy' && r.underLeader !== true) continue;
+            const items = [...(r.items ?? [])].sort((a: any, b: any) => String(a.name).localeCompare(String(b.name), 'en', { sensitivity: 'base', numeric: true }));
+            for (const i of items) {
+              s3.push([t.provinceName, t.leaderName ?? '', r.repName, i.name, i.company, Math.round(i.qty ?? 0), toNum(i.net), i.personalQty ? Math.round(i.personalQty) : null, i.personalQty ? toNum(i.personalNet) : null, i.targetQty > 0 ? Math.round(i.targetQty) : null, i.targetQty > 0 ? pct(i.personalQty ?? 0, i.targetQty) : null]);
+            }
+          }
+        }
+        if (s3.length > 1) XLSX.utils.book_append_sheet(wb, sheet(s3, [14, 20, 22, 28, 14, 12, 18, 12, 16, 12, 10]), 'ايتمات المندوبين');
+      }
+
+      // 4) مناطق بلا محافظة معروفة — خارج المجموع
+      if (unplaced.length) {
+        const s4: any[][] = [['المنطقة', `المبيع (${cur})`, `اللكوديشن (${cur})`]];
+        for (const x of unplaced) s4.push([x.name, toNum(x.total), x.cond ? toNum(x.cond) : null]);
+        XLSX.utils.book_append_sheet(wb, sheet(s4, [22, 16, 16]), 'بلا محافظة');
+      }
+
+      const period = monthKey === 'custom' ? `${fromDate}_${toDate}` : monthKey;
+      XLSX.writeFile(wb, `${marketers ? 'مسوقو' : 'مندوبو'} المحافظات - ${period || 'الكل'}.xlsx`);
+    } catch (e: any) {
+      setErr(e?.message || 'تعذّر تصدير الإكسل');
+    } finally {
+      setExporting(false);
+    }
+  };
+
   const bg = useMemo(() => {
     const areas = salesRows.bga.map(x => {
       const pt = bgPoints?.get(areaKey(x.a));
@@ -1208,6 +1294,11 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
               الفرق
             </button>
           )}
+          <button type="button" disabled={exporting || loading || loadingTeams} onClick={exportExcel}
+            title="تصدير إكسل: المحافظات والمندوبين (مبيع + لكوديشن)، الشركات بكل محافظة، وايتمات كل مندوب"
+            style={{ ...toolbarBtn, background: '#ecfdf5', border: '1px solid #10b981', color: '#047857', opacity: exporting || loading || loadingTeams ? 0.55 : 1 }}>
+            {exporting ? '…' : 'إكسل'}
+          </button>
           {onAddCondition && (
             <button type="button" title="إدخال لكوديشن من ملف إكسل" onClick={onAddCondition}
               style={toolbarBtn}>
