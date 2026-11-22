@@ -6793,7 +6793,7 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                     <thead>
                       <tr>
-                        {['#', repColumnLabel, 'صافي المبيع', ...warehouseClassCols.map(([, label]) => label), 'طلبيات المكتب', 'مبيع المكتب', 'طلبيات المذخر', 'مبيع المذخر', 'الإجمالي', ''].map((h, hi, all) => (
+                        {['#', repColumnLabel, 'صافي المبيع', ...warehouseClassCols.map(([, label]) => label), 'طلبيات المكتب', 'طلبيات المذخر', 'الإجمالي', ''].map((h, hi, all) => (
                           <th key={hi} style={{
                             ...listTh,
                             textAlign: hi === 1 ? 'right' : 'center',
@@ -6820,16 +6820,23 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
                                 const v = repClassValue(r, k);
                                 return <td key={k} style={{ ...listTd, fontWeight: 600, background: v < 0 ? 'rgba(239, 68, 68, 0.12)' : rowBg }}>{v !== 0 ? fmtValSigned(v) : ''}</td>;
                               })}
-                              <td style={{ ...listTd, fontWeight: 600, background: rowBg }}>{r.officeOrderCount > 0 ? fmt(r.officeOrderCount) : ''}</td>
-                              <td style={{ ...listTd, fontWeight: 600, color: '#334155', background: r.officeValue < 0 ? 'rgba(239, 68, 68, 0.12)' : rowBg, whiteSpace: 'nowrap' }}>{r.officeValue !== 0 ? fmtValSigned(r.officeValue) : ''}</td>
-                              <td style={{ ...listTd, fontWeight: 600, background: rowBg }}>{r.warehouseOrderCount > 0 ? fmt(r.warehouseOrderCount) : ''}</td>
-                              <td style={{ ...listTd, fontWeight: 600, color: '#334155', background: repWarehouseValue(r) < 0 ? 'rgba(239, 68, 68, 0.12)' : rowBg, whiteSpace: 'nowrap' }}>{repWarehouseValue(r) !== 0 ? fmtValSigned(repWarehouseValue(r)) : ''}</td>
+                              {/* عدد الطلبيات وتحته بين قوسين صافي مبيعها — في نفس الخانة */}
+                              {([[r.officeOrderCount, r.officeValue], [r.warehouseOrderCount, repWarehouseValue(r)]] as const).map(([cnt, val], ci) => (
+                                <td key={ci} style={{ ...listTd, fontWeight: 600, background: rowBg, lineHeight: 1.25 }}>
+                                  {cnt > 0 && <div>{fmt(cnt)}</div>}
+                                  {val !== 0 && (
+                                    <div style={{ fontSize: 11, fontWeight: 600, color: val < 0 ? '#be123c' : '#64748b', whiteSpace: 'nowrap', direction: 'ltr' }}>
+                                      ({fmtVal(val)})
+                                    </div>
+                                  )}
+                                </td>
+                              ))}
                               <td style={{ ...listTd, fontWeight: 800, background: '#f1f5f9' }}>{fmt(r.officeOrderCount + r.warehouseOrderCount)}</td>
                               <td style={{ ...listTd, color: '#94a3b8', fontSize: 11, background: rowBg }}>{isExpanded ? '▲' : '▼'}</td>
                             </tr>
                             {isExpanded && (
                               <tr>
-                                <td colSpan={9 + warehouseClassCols.length} style={{ ...listTd, background: '#f8fafc', padding: '10px 16px', textAlign: 'right' }}>
+                                <td colSpan={7 + warehouseClassCols.length} style={{ ...listTd, background: '#f8fafc', padding: '10px 16px', textAlign: 'right' }}>
                                   {r.warehouses.length === 0 ? (
                                     <span style={{ color: '#94a3b8', fontSize: 12 }}>لا توجد طلبيات عبر مذاخر لهذا المندوب</span>
                                   ) : (
