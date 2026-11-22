@@ -4012,7 +4012,7 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
       const cv = (n: number) => +convertVal(n).toFixed(2);
       const companyById = new Map(sciReps.map(r => [r.id, r.company || 'بدون شركة']));
       const header = ['#', 'الشركة', repColumnLabel, `صافي المبيع (${fileCurrencyMode === 'USD' ? '$' : 'د.ع'})`,
-        ...warehouseClassCols.map(([, label]) => label), 'طلبيات المكتب', 'طلبيات المذخر', 'الإجمالي', 'أسماء المذاخر'];
+        ...warehouseClassCols.map(([, label]) => label), 'طلبيات المكتب', 'طلبيات المذخر', 'الإجمالي'];
       // نفس خانة الشاشة: العدد وتحته بين قوسين صافي مبيعه (نص بسطرين)
       const cntVal = (cnt: number, val: number) =>
         [cnt > 0 ? String(cnt) : '', val !== 0 ? `(${fmtVal(val)})` : ''].filter(Boolean).join('\n');
@@ -4021,13 +4021,12 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
         ...warehouseClassCols.map(([k]) => cv(repClassValue(r, k))),
         cntVal(r.officeOrderCount, r.officeValue), cntVal(r.warehouseOrderCount, repWarehouseValue(r)),
         r.officeOrderCount + r.warehouseOrderCount,
-        r.warehouses.map(w => `${w.name} (${w.orderCount})`).join('، '),
       ]);
       const aoa: any[][] = [header, ...body];
       const applied = allRepsAppliedLabels();
       if (applied.length) aoa.push([], ['', 'مطبَّق من التحليل:', applied.join(' · ')]);
       const ws = XLSX.utils.aoa_to_sheet(aoa);
-      styleSheet(ws, aoa, [5, 18, 26, 16, ...warehouseClassCols.map(() => 16), 16, 16, 12, 55]);
+      styleSheet(ws, aoa, [5, 18, 26, 16, ...warehouseClassCols.map(() => 16), 16, 16, 12]);
       // فواصل الآلاف لأعمدة القيمة: صافي المبيع (index 3) + أعمدة التصنيف بعده
       const officeCol = 4 + warehouseClassCols.length;
       ws['!rows'] = [{ hpt: 20 }, ...body.map(() => ({ hpt: 32 }))];
