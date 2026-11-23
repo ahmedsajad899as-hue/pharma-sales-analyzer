@@ -454,5 +454,22 @@ check('منطقة الموديل غير المذكورة في سطر المذخ�
   check('hasAdditionLine', [hasAdditionLine('اضافة\nX (1)'), hasAdditionLine('X (1)')], [true, false]);
 }
 
+// ─── 2026-11-23: ميسان «5 ديفيت 50,000» — كمية بلا وحدة قبل اسم عربي + جرعة ─────
+{
+  const h = parseOrderText('5 ديفيت 50,000\nص التعاونية\nمذخر سما دجلة\n@35532415484068');
+  check('ميسان «5 ديفيت 50,000»', [h.header.pharmacy, h.header.warehouse, h.itemLines.map(l => parseItemLine(l))],
+    ['التعاونية', 'سما دجلة', [{ name: 'ديفيت 50000', quantity: 5, bonus: null }]]);
+  check('«5 FU cream» اللاتيني يبقى بلا حسم', parseItemLine('5 FU cream'), null);
+  const catD = [
+    { id: 1, name: 'DEVIT 3 50.000IU 8CAP' }, { id: 2, name: 'DEVIT 3 5000 I.U' }, { id: 3, name: 'DEVIT 3 10.000IU 30CAP' },
+    { id: 4, name: 'DEVIT 3 300.000IU 1AMP' }, { id: 5, name: 'DEVIT-3 ORAL DAMLA, 15ML' }, { id: 6, name: 'Panadol extra' },
+  ];
+  const linkD = (n, c = catD) => { const r = brandDoseFallback(n, c); return r?.confidence === 'high' ? r.canonicalItem.id : null; };
+  check('«ديفيت 50000» (هيكل 3 حروف + جرعة) ← DEVIT 50.000IU', linkD('ديفيت 50000'), 1);
+  check('«ديفيت 50» ← 50.000IU', linkD('ديفيت 50'), 1);
+  check('«ديفيت» بلا جرعة ولا شكل ⇒ لا ربط', linkD('ديفيت'), null);
+  check('«ديفيت 50000» وعلامتان بنفس الهيكل ⇒ لا ربط', linkD('ديفيت 50000', [...catD, { id: 7, name: 'DAFIT 50000' }]), null);
+}
+
 console.log(failed ? `\n✗ ${failed} فشل` : '\n✓ كلها ناجحة');
 process.exit(failed ? 1 : 0);

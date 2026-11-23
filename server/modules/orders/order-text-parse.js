@@ -344,6 +344,9 @@ const UNIT_WRAP_QTY_END = new RegExp(String.raw`\s${COUNT_UNIT}\s*(\d+)\s*${COUN
 // الوحدة (أو البونص «10+1») إلزامية: رقم وحده في أول السطر قد يكون جزءاً من الاسم.
 const UNIT_QTY_START = new RegExp(String.raw`^(\d+)\s*(?:\+\s*(\d+)\s*)?${COUNT_UNIT}\s+(?=\S)`, 'i');
 const PLUS_QTY_START = /^(\d+)\s*\+\s*(\d+)\s+(?=\S)/;
+// «5 ديفيت 50,000» — رقم بلا وحدة قبل اسم **عربي** (كروب ميسان، 2026-11-23). الاسم العربي
+// لا يبدأ برقم، فالرقم كمية؛ وما بعد الاسم جرعة. اللاتيني يبقى ملتبساً («5 FU cream»).
+const ARABIC_QTY_START = /^(\d+)\s+(?=[ء-ي]{3,})/;
 // «عدد Bleedaceas amp 20» — كلمة العدد أول السطر والرقم آخره (كروب البصرة، 2026-11-23).
 // الاسم بينهما يجب أن يحمل شكلاً صيدلانياً أو رقماً («Amoklavin 625 20»)، وإلا فالرقم
 // الوحيد قد يكون الجرعة («عدد Pandev 40») — يُترك للموديل.
@@ -381,7 +384,7 @@ export function parseItemLine(line, opts = {}) {
     quantity = Number(m[1]); bonus = Number(m[2]); name = s.slice(0, m.index);
   } else if ((m = s.match(UNIT_WRAP_QTY_END)) || (m = s.match(UNIT_QTY_END)) || (m = s.match(UNIT_FIRST_QTY_END))) {
     quantity = Number(m[1]); name = s.slice(0, m.index);
-  } else if ((m = s.match(UNIT_QTY_START)) || (m = s.match(PLUS_QTY_START))) {
+  } else if ((m = s.match(UNIT_QTY_START)) || (m = s.match(PLUS_QTY_START)) || (m = s.match(ARABIC_QTY_START))) {
     quantity = Number(m[1]); name = s.slice(m[0].length);
     if (m[2] != null) bonus = Number(m[2]);
   } else if ((m = s.match(COUNT_WORD_START_QTY_END)) && NAME_FORM_OR_DOSE_RE.test(m[1])) {

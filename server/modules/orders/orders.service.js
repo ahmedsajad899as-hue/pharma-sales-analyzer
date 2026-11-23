@@ -166,11 +166,14 @@ export function brandDoseFallback(name, catalog) {
     // هيكل من 3 حروف («ازثروا شراب» ZTR = AZITRO، كروب ميسان 2026-11-23): يُقبل فقط إن
     // كُتب الشكل الصيدلاني، وطابق الهيكلُ علامةً لاتينية واحدة في الكتالوج كله، وبقي
     // منها صنف بنفس الشكل. العائلة = أصناف ذلك الشكل وحدها.
+    // أو كُتبت جرعة («5 ديفيت 50,000» DFT = DEVIT، كروب ميسان 2026-11-23): العائلة = أصناف
+    // العلامة كلها، والجرعة تحسم أدناه — لا ربط إلا إن انفرد بها صنف واحد.
     const f0 = formOf(name);
-    if (!exact.length && !near.length && f0 >= 0) {
+    const hasDose = doseNumbers(name).length > 0;
+    if (!exact.length && !near.length && (f0 >= 0 || hasDose)) {
       const short = crossScriptFamily(arBrand, catalog, brandWord, { minLen: 3 });
-      const sameForm = short.exact.filter(c => formOf(c.name) === f0);
-      if (short.brands.size === 1 && sameForm.length) { exact = sameForm; brands = short.brands; }
+      const pool = f0 >= 0 ? short.exact.filter(c => formOf(c.name) === f0) : short.exact;
+      if (short.brands.size === 1 && pool.length) { exact = pool; brands = short.brands; }
     }
     const sug = (list, sim) => list.slice(0, 8).map(c => ({ id: c.id, name: c.name, sim }));
     if (!exact.length) {
