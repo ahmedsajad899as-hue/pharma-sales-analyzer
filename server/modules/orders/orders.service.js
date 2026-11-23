@@ -108,6 +108,18 @@ function packCounts(s) {
   return [...normalizeItemKey(s).matchAll(PACK_COUNT_RE)].map(m => Number(m[1]));
 }
 const brandWord = (s) => (normalizeItemKey(s).match(/[a-z؀-ۿ]{3,}/) || [])[0] || '';
+// [vowel-skel] هيكل الحروف الساكنة لعلامة لاتينية: يُسقط حروف العلة ويطوي المكرّر.
+// «Senral» = «Sineral» = SNRL (ذي قار 2026-11-23) — المندوب ينقل الاسم من العربية بلا
+// حركات، فيخطئ حروف العلة لا الساكنة. ليفنشتاين = 2 (0.71 < 0.75).
+const latinSkeleton = (b) => /^[a-z]+$/.test(b) ? b.replace(/[aeiouy]/g, '').replace(/(.)\1+/g, '$1') : '';
+// العائلة بالهيكل: فقط إن طابق علامةً **واحدة** في الكتالوج كله وهيكلها ≥4 حروف.
+function vowelSkeletonFamily(brand, catalog) {
+  const sk = latinSkeleton(brand);
+  if (brand.length < 5 || sk.length < 4) return [];
+  const hits = catalog.filter(c => latinSkeleton(brandWord(c.name)) === sk);
+  return new Set(hits.map(c => brandWord(c.name))).size === 1 ? hits : [];
+}
+// [/vowel-skel]
 // حرفان متجاوران مقلوبان فقط («osteron» = «osetron»، ذي قار 2026-11-23). ليفنشتاين يعدّها
 // تعديلين (0.71 < 0.75) وهي خطأ كتابة واحد. ≥5 أحرف كي لا تتساوى علامات قصيرة.
 function oneSwap(a, b) {
@@ -164,6 +176,8 @@ export function brandDoseFallback(name, catalog) {
     const b = brandWord(c.name);
     return b === brand || (b.length >= 4 && similarity(b, brand) >= 0.75) || oneSwap(b, brand);
   });
+  // [vowel-skel] Senral ← Sineral — فقط إن كُتبت جرعة: الجرعة تؤكّد الصنف أدناه.
+  if (!family.length && doseNumbers(name).length) family = vowelSkeletonFamily(brand, catalog);
   // اسم عربي والكتالوج لاتيني («ديتركس iv» ← DAYTRIX، كروب ميسان 2026-11-21): هيكل
   // الحروف الساكنة. يُربط فقط إن طابق علامةً لاتينية **واحدة** تماماً — علامتان بنفس
   // الهيكل، أو فرق حرف، = اقتراحات بلا ربط.

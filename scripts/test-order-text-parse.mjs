@@ -130,6 +130,15 @@ const cat2 = [{ id: 20, name: 'Azitro 500mg Tab' }, { id: 21, name: 'AZITRO Susp
 check('Azitro sus ← AZITRO Susp', brandDoseFallback('Azitro sus', cat2)?.canonicalItem?.id, 21);
 check('Azitro tab 500 ← Tab', brandDoseFallback('Azitro tab 500', cat2)?.canonicalItem?.id, 20);
 check('Azitro بلا جرعة ولا شكل ⇒ لا ربط', brandDoseFallback('Azitro', cat2)?.confidence, 'medium');
+// [vowel-skel] ذي قار 2026-11-23: «Senral 500mg» والكتالوج «Sineral 500 mg» — حروف العلة
+// وحدها تختلف (SNRL). علامتان بنفس الهيكل ⇒ لا ربط.
+const catSkel = [{ id: 30, name: 'Sineral 500 mg' }, { id: 31, name: 'Senna 10mg' }, { id: 32, name: 'Sinert 5mg' }];
+check('Senral 500mg ← Sineral 500 mg', brandDoseFallback('Senral 500mg', catSkel)?.canonicalItem?.id, 30);
+check('Senral 250mg جرعة غير موجودة ⇒ لا ربط', brandDoseFallback('Senral 250mg', catSkel)?.canonicalItem?.id ?? null, null);
+check('هيكل مشترك بين علامتين ⇒ لا ربط', brandDoseFallback('Senral 500mg', [...catSkel, { id: 33, name: 'Saneral 500mg' }])?.canonicalItem?.id ?? null, null);
+check('Pondav 20 ← Pandev 20mg (هيكل PNDV + جرعة)', brandDoseFallback('Pondav 20', cat)?.canonicalItem?.id, 3);
+check('Senral بلا جرعة ⇒ لا توسيع بالهيكل', brandDoseFallback('Senral', catSkel), null);
+// [/vowel-skel]
 
 console.log('\n── الجرعة المركّبة (400/57 = 457) ──');
 // الطلبيتان #139/#141 (2026-10-31): الفاتورة «Amoklavin-BID 400/57mg deva»، والكتالوج
