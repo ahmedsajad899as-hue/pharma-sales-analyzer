@@ -46,7 +46,7 @@ interface Draft {
   key: string; source: string; sourceText: string; sender: string | null; mentions: string[]; readBy: string;
   pharmacyName: string; areaName: string; warehouseId: number | null; warehouseName: string; backupWarehouseIds: number[];
   mentionedWarehouses: MentionedWh[];
-  notes: string; lines: DraftLine[]; repUserId: number | null; repName: string | null; repWhy: 'area' | 'leader' | 'sender' | 'learned' | 'guess' | 'bot' | null; repNote?: string | null;
+  notes: string; lines: DraftLine[]; repUserId: number | null; repName: string | null; repWhy: 'area' | 'leader' | 'sender' | 'learned' | 'guess' | 'bot' | 'botLeader' | null; repNote?: string | null;
   repCandidates: { id: number; name: string }[]; sourceHash: string | null;
   duplicateOf: { id: number; pharmacyName: string; createdAt: string; status: string } | null; dupInBatch: boolean; warnings: string[];
   // الواجهة فقط — manual: بطاقة «كتابة يدوية» بلا رسالة (نفس الحقول والحفظ)
@@ -109,12 +109,12 @@ function botDrafts(o: BotOrder): Draft[] {
       date: first.date ? String(first.date) : undefined, invoiceNumber: first.invoiceNumber ? String(first.invoiceNumber) : undefined,
       bot: { orderId: o.id, source: o.source, repAccount: o.repName ?? null, createdAt: o.createdAt },
       // مرشّحو الخادم للبطاقة (أسماء) — تُطابَق بأعضاء الفريق بعد تحميله
-      ...({ _cands: (first._repCandidates || []).map((c: any) => c?.name).filter(Boolean) } as any),
+      ...({ _cands: (first._repCandidates || []).map((c: any) => c?.name).filter(Boolean), _repPick: first._repPick ?? null, _repNote: first._repNote ?? null } as any),
     } as Draft;
   });
 }
 
-const REP_WHY: Record<string, string> = { bot: 'من الطلبية', leader: 'تيم ليدر المنطقة (لا مندوب علمي لها)', area: 'صاحب المنطقة', sender: 'من اسم المرسل', learned: 'اخترته سابقاً لنفس المرسل', guess: 'صاحب المنطقة' };
+const REP_WHY: Record<string, string> = { bot: 'من الطلبية', botLeader: 'تيم ليدر — لم يُحسم مندوب علمي للصنف', leader: 'تيم ليدر المنطقة (لا مندوب علمي لها)', area: 'صاحب المنطقة', sender: 'من اسم المرسل', learned: 'اخترته سابقاً لنفس المرسل', guess: 'صاحب المنطقة' };
 const dayStr = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const IS_TOUCH = typeof window !== 'undefined' && !!window.matchMedia?.('(pointer: coarse)').matches;
 const fmtPrice = (n?: number | null) => (n != null && Number.isFinite(Number(n)) ? Math.round(Number(n)).toLocaleString('en-US') : null);
@@ -376,7 +376,10 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
       const built = botOrders.flatMap(botDrafts).map(d => {
         const cands = ((d as any)._cands as string[]).map(optOf);
         const picked = d.repName ? optOf(d.repName) : null;
-        return { ...d, repCandidates: cands, repUserId: picked?.id ?? null, repName: picked?.name ?? null, repWhy: picked ? 'bot' as const : null };
+        // التيم ليدر احتياطاً (لا مندوب واحد معيَّن له الصنف) ⇒ يُقال ذلك وسببه بدل «من الطلبية».
+        const leaderPick = (d as any)._repPick === 'leader';
+        return { ...d, repCandidates: cands, repUserId: picked?.id ?? null, repName: picked?.name ?? null,
+          repWhy: picked ? (leaderPick ? 'botLeader' as const : 'bot' as const) : null, repNote: leaderPick ? ((d as any)._repNote ?? null) : d.repNote };
       });
       if (extra.length) setTeam(prev => [...prev, ...extra.filter(x => !prev.some(p => p.id === x.id))]);
       setDrafts(built);
@@ -867,7 +870,7 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
             // زر النوع: لصق/كتابة فقط (لا مراجعة البوت) وحين يكون للفريق مسوقون
             const kindOn = !d.bot && marketers.length > 0;
             const kind: RepKind = kindOn ? repKind : 'auto';
-            const repHint = [d.repWhy ? REP_WHY[d.repWhy] : d.repUserId ? '' : (d.repNote ?? ''), d.sender ? `المرسل: ${d.sender}` : ''].filter(Boolean).join(' · ');
+            const repHint = [d.repWhy ? REP_WHY[d.repWhy] : d.repUserId ? '' : (d.repNote ?? ''), d.repWhy === 'botLeader' ? (d.repNote ?? '') : '', d.sender ? `المرسل: ${d.sender}` : ''].filter(Boolean).join(' · ');
             return (
               <div key={d.key} className={`vi-card ${!d.include ? 'is-off' : ''} ${d.state ? `is-${d.state}` : ''}`}>
                 <div className="vi-card__head">

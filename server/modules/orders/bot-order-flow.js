@@ -257,7 +257,7 @@ export async function handleIncomingOrderMessage({
         const senderRep = await transport.resolveSenderRep(chatId, senderId);
         if (senderRep) {
           for (const row of rows) {
-            if (repSlotOpen(row)) { row.scientificRep = senderRep.name; row._repSource = 'sender'; delete row._repPick; }
+            if (repSlotOpen(row)) { row.scientificRep = senderRep.name; row._repSource = 'sender'; delete row._repPick; delete row._repNote; }
           }
         }
       } catch (e) {

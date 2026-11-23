@@ -566,6 +566,8 @@ export async function attachScientificRepGuess(rows, actingUser) {
       if (areaIds.size > 0 || coverage.provinceId != null) {
         candidates = candidates.filter(c => candidateCoversRow(c, coverage));
       }
+      // مندوبو المنطقة قبل تضييق الصنف — لشرح سبب الرجوع للتيم ليدر (_repNote أدناه).
+      const areaPool = candidates;
       const ownKey = (itemId && itemKeyById.get(itemId)) || itemKey;
       // من عُيِّن له الصنف هو صاحبه، والشركة لا تحسم بينهم. الأدلة التالية لمن لم يُعيَّن
       // الصنف لأحد في هذا النطاق فقط.
@@ -600,7 +602,7 @@ export async function attachScientificRepGuess(rows, actingUser) {
         }
       }
 
-      ctxByRow.set(row, { candidates, areaIds, provinceId: coverage.provinceId, itemKey, brand, sciId, itemEvidence: Boolean(itemId || sciId != null) });
+      ctxByRow.set(row, { candidates, areaIds, provinceId: coverage.provinceId, itemKey, brand, sciId, itemEvidence: Boolean(itemId || sciId != null), areaPool });
     }
 
     // ── سجلّ ميركاتو: من باع هذا الصنف في هذه المنطقة فعلاً ──
@@ -786,6 +788,18 @@ export async function attachScientificRepGuess(rows, actingUser) {
           }
           const res = pickRepOrLeader(ctx.candidates, isLeader, scopeLeader);
           if (!res) continue;
+          if (res.kind === 'leader') {
+            // لماذا التيم ليدر؟ (كربلاء 2026-11-23: «Azitro Susp» كُتب باسم حيدر علي والمراجِع لا
+            // يعرف السبب). يُعرض في بطاقة المراجعة ويُسجَّل في PM2 لتتبّع تعيين الايتمات.
+            const owners = ctx.candidates.filter(c => !isLeader(c)).map(c => c.name);
+            const areaReps = (ctx.areaPool || []).filter(c => !isLeader(c)).map(c => c.name);
+            const where = row.area || 'المنطقة';
+            const item = row.item || 'الصنف';
+            row._repNote = !areaReps.length ? `لا مندوب علمي في «${where}»`
+              : !owners.length ? `«${item}» غير معيَّن لأي مندوب علمي في «${where}» (${areaReps.length}) — عيّنه لصاحبه`
+              : `«${item}» معيَّن لأكثر من مندوب: ${owners.slice(0, 4).join('، ')}`;
+            console.log(`[orders] rep→leader ${res.pick.name} area="${row.area ?? ''}" item="${row.item ?? ''}" itemId=${row._itemId ?? '-'} areaReps=${areaReps.join('|') || '-'} owners=${owners.join('|') || '-'}`);
+          }
           const inList = ctx.candidates.find(c => repCoreKey(c.name) === repCoreKey(res.pick.name));
           const pick = inList || res.pick;
           ctx.decided = pick;
@@ -801,6 +815,7 @@ export async function attachScientificRepGuess(rows, actingUser) {
       // الصنف رُبط لاحقاً (فتح الطلبية بعد إصلاح المطابقة): المندوب المخزَّن اجتاز فحص
       // الملكية أعلاه فلم يعد تخمين منطقة.
       if (ctx.itemEvidence && row._repPick === 'area') delete row._repPick;
+      if (row._repPick !== 'leader') delete row._repNote;
       if (!row.scientificRep) {
         row.scientificRep = ctx.decided?.name ?? (candidates.length === 1 ? candidates[0].name : null);
         // صنف غير مربوط وبلا شركة: المندوب خُمِّن من المنطقة وحدها — ملء خانة لا دليل،

@@ -240,7 +240,7 @@ export async function fillRepFromSenderName(rows, { user, senderName, chatTitle 
     if (!rep) return null;
     for (const r of rows) {
       if (!repSlotOpen(r)) continue;
-      r.scientificRep = rep.name; r._repSource = 'sender'; delete r._repPick;
+      r.scientificRep = rep.name; r._repSource = 'sender'; delete r._repPick; delete r._repNote;
     }
     return rep;
   } catch (e) {
