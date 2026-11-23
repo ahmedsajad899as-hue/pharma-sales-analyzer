@@ -1,5 +1,5 @@
 // قواعد أهلية المندوب المقترَح للطلبية. نقيّ بلا قاعدة بيانات: npm run test:rep-guess
-import { isManagementRepRecord, candidateOwnsItem, candidateHoldsItem, provinceIdByNameKey, rowCoverage, candidateCoversRow, pickRepOrLeader } from '../server/lib/repGuessRules.js';
+import { isManagementRepRecord, candidateOwnsItem, candidateHoldsItem, provinceIdByNameKey, rowCoverage, candidateCoversRow, pickRepOrLeader, areaProvinceResolver } from '../server/lib/repGuessRules.js';
 import { normalizeAreaName } from '../server/lib/itemResolver.js';
 
 let fail = 0;
@@ -77,6 +77,30 @@ eq('مندوبان بلا قائد ⇒ لا حسم', pickRepOrLeader([ali, ahmed
 eq('لا مرشّحين ⇒ قائد النطاق', pickRepOrLeader([], leaderIs([]), haider)?.kind, 'leader');
 eq('القائد وحده بين المرشّحين', pickRepOrLeader([haider], leaderIs([2]))?.pick.name, 'حيدر علي');
 eq('لا مرشّحين ولا قائد ⇒ لا حسم', pickRepOrLeader([], leaderIs([])), null);
+
+// ── ذي قار 2026-11-23: منطقة بلا محافظة تُنسب لها بالاسم ──
+{
+  const provs = [
+    { id: 17, name: 'ذي قار', aliases: JSON.stringify(['الناصرية', 'ناصرية', 'ذيقار']) },
+    { id: 4, name: 'القادسية', aliases: '[]' }, { id: 1, name: 'بغداد', aliases: '[]' },
+  ];
+  const byKey = provinceIdByNameKey(provs, normalizeAreaName);
+  const areas = [
+    { id: 1, name: 'ناصريه', provinceId: null },          // منطقة زين العابدين
+    { id: 2, name: 'القادسية', provinceId: 1 },           // حي في الكرخ
+    { id: 3, name: 'القادسية', provinceId: null },
+    { id: 4, name: 'الشطرة', provinceId: 17 }, { id: 5, name: 'الشطره', provinceId: null },
+    { id: 6, name: 'الحسينية', provinceId: 1 }, { id: 7, name: 'الحسينية', provinceId: 9 }, { id: 8, name: 'الحسينية', provinceId: null },
+    { id: 9, name: 'مكان مجهول', provinceId: null },
+  ];
+  const of = areaProvinceResolver(areas, byKey, normalizeAreaName);
+  eq('«ناصريه» بلا محافظة ← ذي قار (بديل المحافظة)', of(areas[0]), 17);
+  eq('«القادسية» بلا محافظة ← بغداد (السميّ المربوط يغلب اسم المحافظة)', of(areas[2]), 1);
+  eq('«الشطره» ← سميّها في ذي قار', of(areas[4]), 17);
+  eq('سميّات بمحافظتين ⇒ لا حسم', of(areas[7]), null);
+  eq('اسم مجهول ⇒ null', of(areas[8]), null);
+  eq('provinceId المسجّل يبقى', of(areas[1]), 1);
+}
 
 console.log(fail ? `\n✗ ${fail} فشل` : '\n✓ كلها نجحت');
 process.exit(fail ? 1 : 0);

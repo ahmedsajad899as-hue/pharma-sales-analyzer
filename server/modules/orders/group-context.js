@@ -12,7 +12,7 @@
 
 import prisma from '../../lib/prisma.js';
 import { normalizeAreaName } from '../../lib/itemResolver.js';
-import { provinceIdByNameKey } from '../../lib/repGuessRules.js';
+import { provinceIdByNameKey, areaProvinceResolver } from '../../lib/repGuessRules.js';
 import { loadKnownAreaIndex } from './order-extract.js';
 
 // ─── اسم الكروب ← منطقة/محافظة ───────────────────────────────────────────────
@@ -176,13 +176,13 @@ async function loadProvinceIndex() {
 /** مندوبو مكتب الحساب مع محافظاتهم (تعيين محافظة + فريق محافظة + مناطق داخل محافظة). */
 async function loadOfficeReps(user) {
   const officeWhere = user.officeId ? { officeId: user.officeId } : { id: user.id };
-  const [reps, teamAssigns] = await Promise.all([
+  const [reps, teamAssigns, linkedAreas, provinceIndex] = await Promise.all([
     prisma.user.findMany({
       where: { role: 'scientific_rep', isActive: true, ...officeWhere },
       select: {
         id: true, username: true, displayName: true,
         provinceAssignments: { select: { provinceId: true } },
-        areaAssignments: { select: { area: { select: { provinceId: true } } } },
+        areaAssignments: { select: { area: { select: { id: true, name: true, provinceId: true } } } },
       },
     }),
     user.officeId
@@ -191,7 +191,12 @@ async function loadOfficeReps(user) {
           select: { repUserId: true, team: { select: { provinceId: true } }, rep: { select: { id: true, username: true, displayName: true } } },
         })
       : Promise.resolve([]),
+    // مناطق بلا محافظة تُنسب لها بالاسم (areaProvinceResolver — «ناصريه» ← ذي قار).
+    prisma.area.findMany({ where: { provinceId: { not: null } }, select: { id: true, name: true, provinceId: true } }),
+    loadProvinceIndex(),
   ]);
+  const provinceIdByKey = new Map([...provinceIndex].map(([k, p]) => [k, p.id]));
+  const provinceOfArea = areaProvinceResolver(linkedAreas, provinceIdByKey, normalizeAreaName);
   const byId = new Map();
   const add = (u) => {
     if (!byId.has(u.id)) byId.set(u.id, { id: u.id, name: u.displayName?.trim() || u.username, provinces: new Set() });
@@ -200,7 +205,7 @@ async function loadOfficeReps(user) {
   for (const r of reps) {
     const c = add(r);
     r.provinceAssignments.forEach(p => c.provinces.add(p.provinceId));
-    r.areaAssignments.forEach(a => a.area?.provinceId != null && c.provinces.add(a.area.provinceId));
+    r.areaAssignments.forEach(a => { const pid = a.area ? provinceOfArea(a.area) : null; if (pid != null) c.provinces.add(pid); });
   }
   for (const t of teamAssigns) add(t.rep).provinces.add(t.team.provinceId);
   return [...byId.values()];
@@ -244,6 +249,11 @@ export async function fillRepFromSenderName(rows, { user, senderName, chatTitle 
     if (hit?.kind === 'area') {
       const a = await prisma.area.findFirst({ where: { name: hit.area, provinceId: { not: null } }, select: { provinceId: true } });
       provinceId = a?.provinceId ?? null;
+    }
+    // الكروب لا يحمل اسم محافظة: المحافظة المكتوبة في الطلبية نفسها («ذي قار»، 2026-11-23).
+    if (provinceId == null) {
+      const ids = new Set(rows.map(r => r?.area ? provinceIndex.get(normalizeAreaName(r.area))?.id : null).filter(id => id != null));
+      if (ids.size === 1) provinceId = [...ids][0];
     }
     const rep = pickRepBySenderName(senderName, candidates, provinceId);
     if (!rep) return null;

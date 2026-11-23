@@ -39,6 +39,33 @@ export function provinceIdByNameKey(provinces, normalize) {
 }
 
 /**
+ * محافظة صفّ Area. المناطق لكل حساب، وكثير منها بلا provinceId («ناصريه» لمندوب ذي قار،
+ * 2026-11-23) فلا يغطّي مندوبُها طلبيةً كُتب فيها اسم المحافظة. بالترتيب:
+ * provinceId المسجّل ← سمِيّ مربوط بمحافظة **واحدة** ← اسم المنطقة اسمُ/بديلُ محافظة.
+ * @returns {(a:{id:number,name:string,provinceId:number|null}) => number|null}
+ */
+export function areaProvinceResolver(areas, provinceByKey, normalize) {
+  const byName = new Map(); // اسم ← محافظات سميّاته المربوطة
+  for (const a of areas || []) {
+    if (a.provinceId == null) continue;
+    const k = normalize(String(a.name ?? ''));
+    if (!k) continue;
+    if (!byName.has(k)) byName.set(k, new Set());
+    byName.get(k).add(a.provinceId);
+  }
+  return (a) => {
+    if (a.provinceId != null) return a.provinceId;
+    const k = normalize(String(a.name ?? ''));
+    if (!k) return null;
+    // السميّ المربوط أولاً: «القادسية» منطقة في الكرخ واسم محافظة معاً — مناطقها المربوطة
+    // ببغداد تحسم. سميّات بمحافظتين = لبس، لا رجوع لاسم المحافظة.
+    const peers = byName.get(k);
+    if (peers) return peers.size === 1 ? [...peers][0] : null;
+    return provinceByKey.get(k) ?? null;
+  };
+}
+
+/**
  * النطاق الجغرافي لصف طلبية. طلبيات المحافظات كثيراً ما تكتب اسم المحافظة («النجف») لا
  * منطقة داخلها، فلا يطابق صفّ Area ويسقط فلتر المنطقة فيُقترح مندوبو بغداد. المنطقة
  * المطابقة تبقى الأولى: «القادسية» منطقة في الكرخ ومحافظة معاً.

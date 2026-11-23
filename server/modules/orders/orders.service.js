@@ -19,7 +19,7 @@ import { loadResolutionContext, loadCompanyContext, resolveItemName, resolveItem
 import { cleanPharmacyName } from '../../lib/surveyPharmacies.js';
 import { matchInvoiceCustomers } from '../../lib/invoiceCustomerMatch.js';
 import { REP_ROLES } from '../../lib/areaScope.js';
-import { isManagementRepRecord, candidateOwnsItem, candidateHoldsItem, provinceIdByNameKey, rowCoverage, candidateCoversRow, pickRepOrLeader } from '../../lib/repGuessRules.js';
+import { isManagementRepRecord, candidateOwnsItem, candidateHoldsItem, provinceIdByNameKey, rowCoverage, candidateCoversRow, pickRepOrLeader, areaProvinceResolver } from '../../lib/repGuessRules.js';
 import { similarity, routesOf, hasDifferentRoutes, truncatedDose } from '../../lib/fuzzyMatch.js';
 import { arabicBrandWord, crossScriptFamily } from '../../lib/drugSkeleton.js';
 import { applyTextParse, TEXT_PARSE_VERSION } from './order-extract.js';
@@ -511,10 +511,15 @@ export async function attachScientificRepGuess(rows, actingUser) {
     // المحافظة تشمل كل مناطقها: منطقة مطابقة داخلها يغطّيها مندوب المحافظة أيضاً.
     const provinceByKey = provinceIdByNameKey(provinces, normalizeAreaName);
     const areaIdsByProvince = new Map();
+    // صفّ Area بلا محافظة (المناطق لكل حساب) يُنسب لها بالاسم: اسمه اسم/بديل محافظة
+    // («ناصريه» ← ذي قار)، أو سمِيُّه المربوط بمحافظة واحدة. ذي قار 2026-11-23: منطقة
+    // «زين العابدين» صفّ بلا محافظة، فلم يغطِّ طلبية «ذي قار» وبقيت الخانة فارغة.
+    const provinceOfAreaRow = areaProvinceResolver(areas, provinceByKey, normalizeAreaName);
     for (const a of areas) {
-      if (a.provinceId == null) continue;
-      if (!areaIdsByProvince.has(a.provinceId)) areaIdsByProvince.set(a.provinceId, []);
-      areaIdsByProvince.get(a.provinceId).push(a.id);
+      const pid = provinceOfAreaRow(a);
+      if (pid == null) continue;
+      if (!areaIdsByProvince.has(pid)) areaIdsByProvince.set(pid, []);
+      areaIdsByProvince.get(pid).push(a.id);
     }
     for (const c of index) {
       for (const pid of c.provinces) for (const id of areaIdsByProvince.get(pid) || []) c.areas.add(id);
@@ -797,7 +802,7 @@ export async function attachScientificRepGuess(rows, actingUser) {
         const leaderKeys = new Set([...teams.map(t => asCand(t.leader).name), ...tlUsers.map(u => asCand(u).name)].map(repCoreKey).filter(Boolean));
         const isLeader = (c) => (c.id > 0 && leaderIds.has(c.id)) || leaderKeys.has(repCoreKey(c.name));
         const leaderByProvince = new Map(teams.map(t => [t.provinceId, asCand(t.leader)]));
-        const provinceOfArea = new Map(areas.map(a => [a.id, a.provinceId]));
+        const provinceOfArea = new Map(areas.map(a => [a.id, provinceOfAreaRow(a)]));
         const unique = (list) => (list.length === 1 ? list[0] : null);
 
         for (const [row, ctx] of undecided) {
