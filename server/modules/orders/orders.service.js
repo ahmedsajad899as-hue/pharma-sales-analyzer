@@ -22,7 +22,7 @@ import { REP_ROLES } from '../../lib/areaScope.js';
 import { isManagementRepRecord, candidateOwnsItem, candidateHoldsItem, provinceIdByNameKey, rowCoverage, candidateCoversRow, pickRepOrLeader, areaProvinceResolver } from '../../lib/repGuessRules.js';
 import { similarity, routesOf, hasDifferentRoutes, truncatedDose } from '../../lib/fuzzyMatch.js';
 import { arabicBrandWord, crossScriptFamily } from '../../lib/drugSkeleton.js';
-import { applyTextParse, TEXT_PARSE_VERSION } from './order-extract.js';
+import { applyTextParse, TEXT_PARSE_VERSION, parseOrderRowsWithoutAi } from './order-extract.js';
 import { fillRepFromSenderName, fillAreaFromGroup, fillAreaFromRep } from './group-context.js';
 import { loadItemOwnerManagers } from '../../lib/itemOwnerManager.js';
 import { createFromBotOrder } from '../warehouse-dispatch/dispatch.core.js';
@@ -1478,10 +1478,26 @@ async function routeQueuedOrders(userId) {
   }
 }
 
+// [reparse] قراءة مخزَّنة ناقصة (للمراجعة، أو صنف بلا كمية) والمحلّل يحسم النصّ الآن كاملاً
+// ⇒ صفوفه تحلّ محلّها. reconcileRowsWithText يُصلح الترويسة فقط ولا يعيد بناء الأصناف
+// (كروب الديوانية 2026-11-23: علامة RLM أول «10 قطعة» جعلت الكميات أصنافاً «10 قطعة»).
+async function reparseBrokenRows(live, sourceText, payload) {
+  const broken = payload?.readBy === 'review' || live.some(r => !(Number(r?.quantity) > 0));
+  if (!broken) return false;
+  let parsed = null;
+  try { parsed = await parseOrderRowsWithoutAi(sourceText, { todayISO: live.find(r => r?.date)?.date }); }
+  catch (e) { console.error('[orders] إعادة القراءة:', e?.message); }
+  if (!parsed?.length) return false;
+  live.splice(0, live.length, ...parsed);
+  return true;
+}
+// [/reparse]
+
 async function refreshStoredRows(q, rows, user) {
   const payload = q.payload || {};
   try {
     if (rows.length && q.kind === 'text' && q.sourceText && payload.textParse !== TEXT_PARSE_VERSION) {
+      if (await reparseBrokenRows(rows, q.sourceText, payload)) payload.readBy = 'parser'; // [reparse]
       const areaBefore = rows.map(r => r.area ?? null);
       await applyTextParse(rows, q.sourceText);
       await enrichRowsFromCatalog(rows, user.id);
@@ -1619,6 +1635,7 @@ export async function getPendingOrder(userId, id) {
   // والمندوب. في الذاكرة فقط كالمطابقة أدناه.
   if (rows.length && row.kind === 'text' && row.sourceText && payload.textParse !== TEXT_PARSE_VERSION) {
     const live = rows.filter(Boolean);
+    await reparseBrokenRows(live, row.sourceText, payload); // [reparse]
     const areaBefore = live.map(r => r.area ?? null);
     // النصّ كما هو: الأسطر هي ما يقرأه المحلّل، وparseOrderText يُسقط سطر «طلبية» بنفسه.
     await applyTextParse(live, row.sourceText);

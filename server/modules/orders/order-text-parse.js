@@ -91,7 +91,11 @@ export function cleanWarehouseName(tail) {
   return cut ? cut.split(/\s+/).slice(0, 3).join(' ') : null;
 }
 
-const toLatinDigits = (s) => String(s ?? '').replace(/[٠-٩]/g, d => String(d.charCodeAt(0) - 0x0660));
+// [invisible] علامات الاتجاه والتنسيق غير المرئية (RLM/LRM/ZWJ/BOM…) — واتساب يضعها أول بعض
+// الأسطر، فلا يطابق «10 قطعة» سطرَ كمية ويصير صنفاً (كروب الديوانية 2026-11-23، Voranex).
+const INVISIBLE_RE = /[­؜​-‏‪-‮⁠-⁩﻿]/g;
+// [/invisible]
+const toLatinDigits = (s) => String(s ?? '').replace(INVISIBLE_RE, '').replace(/[٠-٩]/g, d => String(d.charCodeAt(0) - 0x0660));
 
 /** تطبيع خفيف للمقارنة (لا للعرض). */
 export function normKey(s) {
@@ -104,6 +108,7 @@ export function normKey(s) {
 }
 
 const tidy = (s) => String(s ?? '')
+  .replace(INVISIBLE_RE, '') // [invisible]
   .replace(/ـ/g, '')
   .replace(/\s+/g, ' ')
   .trim()

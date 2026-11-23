@@ -493,5 +493,21 @@ check('منطقة الموديل غير المذكورة في سطر المذخ�
   check('قلب حرفين في علامة قصيرة (<5) لا يُقبل', linkO('Aimx 10', [{ id: 9, name: 'Amix 10mg' }]), null);
 }
 
+// [invisible] كروب الديوانية 2026-11-23 (Ibrahim Mohsen): علامة RLM غير مرئية أول سطر «10 قطعة»
+// فلم يُقرأ سطرَ كمية، وظهرت الطلبية بثلاثة أصناف «10 قطعة» بكمية 0.
+{
+  const RLM = '‏', LRM = '‎';
+  const lines = ['voranex vial', '5 قطعة', 'seladrenalin 4 mg /4ml', '10 قطعة', 'adrenaline  amp', '10 قطعة',
+    'Atropine sulfate amp', '10 قطعة', 'amikavir  amp', '10 قطعة', 'صيدلية تعليم بغداد', 'مذخر الضامن', '@244168991453375'];
+  const expectItems = ['voranex vial (5)', 'seladrenalin 4 mg /4ml (10)', 'adrenaline amp (10)', 'Atropine sulfate amp (10)', 'amikavir amp (10)'];
+  for (const [label, mark] of [['RLM', RLM], ['LRM', LRM], ['بلا علامة', '']]) {
+    const r = parseOrderText(lines.map(l => /قطعة/.test(l) ? mark + l : l).join('\n'));
+    check(`Voranex + ${label}: الأصناف`, r.itemLines, expectItems);
+    check(`Voranex + ${label}: الترويسة`, [r.header.pharmacy, r.header.warehouse], ['تعليم بغداد', 'الضامن']);
+  }
+  check('«RLM 10 قطعة» سطر كمية يلتصق بصنفه', parseItemLine(`adrenaline amp${RLM} (10)`), { name: 'adrenaline amp', quantity: 10, bonus: null });
+}
+// [/invisible]
+
 console.log(failed ? `\n✗ ${failed} فشل` : '\n✓ كلها ناجحة');
 process.exit(failed ? 1 : 0);
