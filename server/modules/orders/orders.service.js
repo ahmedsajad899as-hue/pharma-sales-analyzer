@@ -616,6 +616,12 @@ export async function attachScientificRepGuess(rows, actingUser) {
       const ownership = { itemId, itemKey: ownKey, brand: itemBrand(ownKey), sciId };
       candidates = candidates.filter(c => candidateOwnsItem(c, ownership));
 
+      // احتياط «التيم ليدر»/تخمين المنطقة المخزَّن ملءُ خانة لا اختيار — يُعاد التخمين كل مرة.
+      // التيم ليدر ليس في index (مندوبون علميون فقط) ففحص الأهلية أدناه لا ينفيه أبداً، فبقي
+      // القائد ولو رُبط الصنف بعدها بصاحبه (ذي قار 2026-11-23: Osteron ← زين العابدين).
+      if (row.scientificRep && row._repSource !== 'sender' && (row._repPick === 'leader' || row._repPick === 'area')) {
+        row.scientificRep = null; delete row._repPick; delete row._repNote;
+      }
       // مندوب مخزَّن من قراءة سابقة (طلبية معلَّقة): يُعاد فحصه بالقواعد نفسها. مندوب
       // المرسِل (_repSource) اختيار لا تخمين، فلا تنفيه ملكية الصنف.
       if (row.scientificRep) {

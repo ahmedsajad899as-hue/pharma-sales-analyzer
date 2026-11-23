@@ -96,5 +96,17 @@ check('مندوب غير معروف ← null', pickAreaFromRep('زيد', repsB, 
   check('مندوب حسمه الصنف لا يُمسّ', repSlotOpen({ scientificRep: 'مصطفى قاسم' }), false);
 }
 
+// ─── ذي قار 2026-11-23: «Zain Fadhel» = «زين العابدين» (المسجَّل بلا اسم الأب) ─────
+{
+  // مندوبو الناصرية كما في سجلّ الإنتاج.
+  const nas = ['امير محمد', 'حسن', 'حسين علي', 'زين العابدين', 'محمد مطشر', 'مصطفى حيدر', 'كرار حيدر']
+    .map((name, i) => ({ id: 10 + i, name, provinces: new Set([9]) }));
+  const all = [...nas, { id: 30, name: 'زينب محمد', provinces: new Set([1]) }];
+  check('«Zain Fadhel» الاسم الأول وحده ← زين العابدين', pickRepBySenderName('Zain Fadhel', all, 9)?.id, 13);
+  check('«Zain Fadhel» بلا محافظة ⇒ لا حسم', pickRepBySenderName('Zain Fadhel', all, null), null);
+  check('«Hassan Kareem» يطابق حسن وحسين ⇒ لا حسم', pickRepBySenderName('Hassan Kareem', all, 9), null);
+  check('«Ameer Jameel» يطابق امير محمد وحده في المحافظة', pickRepBySenderName('Ameer Jameel', all, 9)?.id, 10);
+}
+
 console.log(failed ? `\n✗ ${failed} فشل` : '\n✓ كلها ناجحة');
 process.exit(failed ? 1 : 0);

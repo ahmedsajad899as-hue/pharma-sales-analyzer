@@ -147,6 +147,15 @@ export function pickRepBySenderName(senderName, candidates, provinceId = null) {
     // المكتب، لكنه يكفي إن انفرد به مندوب واحد في محافظة الكروب.
     hits = candidates.filter(c => c.provinces.has(provinceId) && sameNameAcrossScripts(senderName, c.name, { minLen: 3 }));
   }
+  if (hits.length === 0 && provinceId != null) {
+    // الاسم الأول وحده (ذي قار 2026-11-23): «Zain Fadhel» = «زين العابدين» — المسجَّل اسمٌ
+    // مركّب بلا اسم الأب، وواتساب يحمل الأول المختصر + الأب. يكفي إن انفرد به مندوب واحد
+    // في محافظة الكروب («Hassan …» يطابق حسن وحسين معاً ⇒ لا حسم).
+    const first = nameSkeleton(senderName)[0] || '';
+    if (first.length >= 2) {
+      hits = candidates.filter(c => c.provinces.has(provinceId) && nameSkeleton(c.name)[0] === first);
+    }
+  }
   return hits.length === 1 ? hits[0] : null;
 }
 
