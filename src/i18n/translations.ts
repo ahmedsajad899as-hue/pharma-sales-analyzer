@@ -543,7 +543,8 @@ const translations = {
       scientificReps: 'Scientific',
       reports: 'Reports',
       users: 'Users',
-      doctors: 'Survey Doctors',
+      // كانت «Survey Doctors» — بالإنجليزية لم يتعرّف المستخدمون عليها فظنّوا «تحليل الكولات» مخفية
+      doctors: 'Calls Analysis',
       monthlyPlans: 'Monthly Plan',
       dailyPlan: 'Daily Plan',
     },
