@@ -381,7 +381,9 @@ export async function extractOrderRowsByMode(text, { mode = 'both', todayISO, th
 // 11: «Amoklavin 20p 1g» الكمية بوحدتها بين العلامة والجرعة (كربلاء).
 // 12: إعادة ربط بعد إصلاح الجرعة «1g» = 1000 ≠ «1.2g» (كان يُربط بـfalkon 1.2g IV).
 // 13: «Moxiblav 312» = «312.5MG» (عدد صحيح = عشري مقصوص بفرق ≤1%) — كسرها إصلاح 12.
-export const TEXT_PARSE_VERSION = 13;
+// 14 (2026-11-23): «تم تجهيز صيدلية X Brand» الصيدلية من سطر الصنف، «ص X م Y» المذخر منفصل،
+//     «عدد Brand amp 20» (البصرة/ميسان).
+export const TEXT_PARSE_VERSION = 14;
 
 /**
  * القراءة الحتمية للنصّ تغلب اجتهاد الموديل حيث يحسم الشكل: ترويسة متعدّدة الأسطر

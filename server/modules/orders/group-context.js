@@ -103,25 +103,31 @@ export function wordSkeleton(word) {
   return collapse([...w].map(ch => AR_CLASS[ch] ?? '').join(''));
 }
 
+// ألقاب قبل الاسم في واتساب («Dr. Abbas Lateef»، 2026-11-23) — ليست جزءاً من الاسم المسجّل.
+const HONORIFIC_RE = /^(?:dr|doctor|pharm|pharmacist|eng|mr|mrs|ms|د|دكتور|الدكتور|دكتوره|الدكتوره|صيدلاني|الصيدلاني)$/i;
+
 /** «Ameer Madher» ← ['MR','MDR']. الكلمات بلا ساكن («Ali» الصائتة؟) تُسقط. */
 export function nameSkeleton(name) {
-  return String(name ?? '')
+  const words = String(name ?? '')
     .replace(/[^\p{L}\s-]/gu, ' ')
-    .split(/[\s]+/).filter(Boolean)
-    .map(wordSkeleton).filter(Boolean);
+    .split(/[\s]+/).filter(Boolean);
+  while (words.length > 1 && HONORIFIC_RE.test(words[0])) words.shift();
+  return words.map(wordSkeleton).filter(Boolean);
 }
 
 /**
  * هل الاسمان لشخص واحد ولو بأبجديتين؟ تطابق هيكل أول كلمتين على الأقل (بالترتيب)
  * — كلمة واحدة («Ali») تطابق مئات الأسماء فلا تكفي.
+ * minLen: أقصر طول لهيكل الكلمات المتطابقة معاً (4 افتراضاً؛ 3 للمطابقة الضعيفة
+ * داخل محافظة الكروب فقط — «Moamal Ali» = ML+L).
  */
-export function sameNameAcrossScripts(a, b) {
+export function sameNameAcrossScripts(a, b, { minLen = 4 } = {}) {
   const x = nameSkeleton(a), y = nameSkeleton(b);
   const n = Math.min(x.length, y.length);
   if (n < 2) return false;
   for (let i = 0; i < n; i++) if (x[i] !== y[i]) return false;
   // هيكل قصير جداً (حرفان للاسمين معاً) لبس أكثر منه دليل.
-  return x.slice(0, n).join('').length >= 4;
+  return x.slice(0, n).join('').length >= minLen;
 }
 
 /**
@@ -135,6 +141,11 @@ export function pickRepBySenderName(senderName, candidates, provinceId = null) {
   if (provinceId != null && hits.length) {
     const inProv = hits.filter(c => c.provinces.has(provinceId));
     if (inProv.length) hits = inProv;
+  }
+  if (hits.length === 0 && provinceId != null) {
+    // هيكل من 3 حروف («Moamal Ali» ← «مؤمل علي»، كروب ميسان 2026-11-23) لبس على مستوى
+    // المكتب، لكنه يكفي إن انفرد به مندوب واحد في محافظة الكروب.
+    hits = candidates.filter(c => c.provinces.has(provinceId) && sameNameAcrossScripts(senderName, c.name, { minLen: 3 }));
   }
   return hits.length === 1 ? hits[0] : null;
 }
@@ -212,7 +223,8 @@ export async function fillAreaFromGroup(rows, chatTitle) {
  * «Ibrahim Mohsen» = «ابراهيم محسن نعمة» والتخمين كتب قائد الفريق لأن الصنف لم يُربط).
  * مندوب حسمه تعيين الصنف لا يُمسّ — الايتمات تحدّد المندوب.
  */
-export const repSlotOpen = (r) => !r?.scientificRep || r._repPick === 'leader';
+// 'area' = مندوب خُمِّن من المنطقة وحدها والصنف غير مربوط (#ميسان 2026-11-23) — ملء خانة أيضاً.
+export const repSlotOpen = (r) => !r?.scientificRep || r._repPick === 'leader' || r._repPick === 'area';
 
 export async function fillRepFromSenderName(rows, { user, senderName, chatTitle }) {
   if (!rows?.length || !user || !String(senderName ?? '').trim() || !rows.some(repSlotOpen)) return null;

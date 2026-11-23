@@ -125,14 +125,16 @@ function cachedLatin(brand) {
  * @param {string} arBrand  كلمة العلامة العربية (arabicBrandWord)
  * @param {{id:number,name:string}[]} catalog
  * @param {(name:string)=>string} brandOf  علامة اسم الكتالوج (أول كلمة لاتينية)
+ * @param {{ minLen?: number }} [o] minLen=3 للهيكل القصير («ازثروا» ZTR = Azitro) — المستدعي
+ *   يشترط معه شكلاً صيدلانياً مطابقاً وعلامةً لاتينية واحدة.
  * @returns {{ exact: object[], brands: Set<string>, near: object[] }}
  *   exact = هيكل مطابق تماماً · brands = العلامات اللاتينية المختلفة بينها ·
  *   near = فرق حرف واحد (اقتراح فقط، لا ربط).
  */
-export function crossScriptFamily(arBrand, catalog, brandOf) {
+export function crossScriptFamily(arBrand, catalog, brandOf, { minLen = MIN_CROSS_SKELETON } = {}) {
   const sk = arabicSkeleton(arBrand);
   const exact = [], near = [], brands = new Set();
-  if (sk.length < MIN_CROSS_SKELETON || !Array.isArray(catalog)) return { exact, brands, near };
+  if (sk.length < minLen || !Array.isArray(catalog)) return { exact, brands, near };
   for (const c of catalog) {
     const b = brandOf(c.name);
     if (!b || !/^[a-z]+$/.test(b)) continue;

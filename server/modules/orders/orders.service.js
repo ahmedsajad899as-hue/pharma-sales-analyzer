@@ -162,7 +162,16 @@ export function brandDoseFallback(name, catalog) {
   if (!family.length) {
     const arBrand = arabicBrandWord(name);
     if (!arBrand) return null;
-    const { exact, brands, near } = crossScriptFamily(arBrand, catalog, brandWord);
+    let { exact, brands, near } = crossScriptFamily(arBrand, catalog, brandWord);
+    // هيكل من 3 حروف («ازثروا شراب» ZTR = AZITRO، كروب ميسان 2026-11-23): يُقبل فقط إن
+    // كُتب الشكل الصيدلاني، وطابق الهيكلُ علامةً لاتينية واحدة في الكتالوج كله، وبقي
+    // منها صنف بنفس الشكل. العائلة = أصناف ذلك الشكل وحدها.
+    const f0 = formOf(name);
+    if (!exact.length && !near.length && f0 >= 0) {
+      const short = crossScriptFamily(arBrand, catalog, brandWord, { minLen: 3 });
+      const sameForm = short.exact.filter(c => formOf(c.name) === f0);
+      if (short.brands.size === 1 && sameForm.length) { exact = sameForm; brands = short.brands; }
+    }
     const sug = (list, sim) => list.slice(0, 8).map(c => ({ id: c.id, name: c.name, sim }));
     if (!exact.length) {
       return near.length
@@ -591,7 +600,7 @@ export async function attachScientificRepGuess(rows, actingUser) {
         }
       }
 
-      ctxByRow.set(row, { candidates, areaIds, provinceId: coverage.provinceId, itemKey, brand, sciId });
+      ctxByRow.set(row, { candidates, areaIds, provinceId: coverage.provinceId, itemKey, brand, sciId, itemEvidence: Boolean(itemId || sciId != null) });
     }
 
     // ── سجلّ ميركاتو: من باع هذا الصنف في هذه المنطقة فعلاً ──
@@ -789,8 +798,14 @@ export async function attachScientificRepGuess(rows, actingUser) {
     for (const [row, ctx] of ctxByRow) {
       const { candidates } = ctx;
       row._repCandidates = candidates.slice(0, 8).map(c => ({ id: c.id, name: c.name }));
+      // الصنف رُبط لاحقاً (فتح الطلبية بعد إصلاح المطابقة): المندوب المخزَّن اجتاز فحص
+      // الملكية أعلاه فلم يعد تخمين منطقة.
+      if (ctx.itemEvidence && row._repPick === 'area') delete row._repPick;
       if (!row.scientificRep) {
         row.scientificRep = ctx.decided?.name ?? (candidates.length === 1 ? candidates[0].name : null);
+        // صنف غير مربوط وبلا شركة: المندوب خُمِّن من المنطقة وحدها — ملء خانة لا دليل،
+        // فاسم المرسل المسجّل مندوباً في محافظة الكروب أولى منه (repSlotOpen، 2026-11-23).
+        if (row.scientificRep && !ctx.itemEvidence && row._repPick !== 'leader') row._repPick = 'area';
       }
     }
   } catch (e) {

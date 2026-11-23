@@ -81,5 +81,20 @@ check('مندوب محافظة واحدة ← محافظته', pickAreaFromRep('
 check('مندوب بمحافظتين ← لا حسم', pickAreaFromRep('علي حسن', repsB, provNames), null);
 check('مندوب غير معروف ← null', pickAreaFromRep('زيد', repsB, provNames), null);
 
+// ─── 2026-11-23: «Dr. Abbas Lateef» (البصرة) و«Moamal Ali» (ميسان) ──────────
+{
+  const reps = [
+    { id: 1, name: 'عباس لطيف جاسم', provinces: new Set([2]) },
+    { id: 2, name: 'مؤمل علي حسين', provinces: new Set([5]) },
+    { id: 3, name: 'مصطفى قاسم', provinces: new Set([5]) },
+    { id: 4, name: 'معمل علي', provinces: new Set([7]) },
+  ];
+  check('لقب «Dr.» يُسقط', pickRepBySenderName('Dr. Abbas Lateef', reps, 2)?.id, 1);
+  check('«Moamal Ali» هيكل 3 حروف ← داخل محافظة الكروب', pickRepBySenderName('Moamal Ali', reps, 5)?.id, 2);
+  check('«Moamal Ali» بلا محافظة ⇒ لا حسم', pickRepBySenderName('Moamal Ali', reps, null), null);
+  check('تخمين المنطقة وحدها (_repPick=area) خانة مفتوحة', repSlotOpen({ scientificRep: 'مصطفى قاسم', _repPick: 'area' }), true);
+  check('مندوب حسمه الصنف لا يُمسّ', repSlotOpen({ scientificRep: 'مصطفى قاسم' }), false);
+}
+
 console.log(failed ? `\n✗ ${failed} فشل` : '\n✓ كلها ناجحة');
 process.exit(failed ? 1 : 0);

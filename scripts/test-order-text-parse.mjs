@@ -412,5 +412,27 @@ check('منطقة الموديل غير المذكورة في سطر المذخ�
   check('«Daytrix 10p 1g IV» ذيل كلمتين', parseItemLine('Daytrix 10p 1g IV'), { name: 'Daytrix 1g IV', quantity: 10, bonus: null });
 }
 
+// ─── 2026-11-23: طلبيات البصرة/ميسان التي قُرئت خطأً ─────────────────────────
+{
+  const h1 = parseOrderText('تم تجهيز صيدلية الفيحاء Amuklavin 625mg\nعدد 50');
+  check('«تم تجهيز صيدلية الفيحاء Amuklavin 625mg ⏎ عدد 50»: الصيدلية من سطر الصنف',
+    [h1.header.pharmacy, h1.itemLines.map(l => parseItemLine(l))], ['الفيحاء', [{ name: 'Amuklavin 625mg', quantity: 50, bonus: null }]]);
+  const h2 = parseOrderText('عدد Bleedaceas amp 20\nص الكوثر النموذجية م ساوة');
+  check('«ص الكوثر النموذجية م ساوة»: المذخر ينفصل عن الصيدلية',
+    { pharmacy: h2.header.pharmacy, warehouse: h2.header.warehouse }, { pharmacy: 'الكوثر النموذجية', warehouse: 'ساوة' });
+  const h3 = parseOrderText('عدد Bleedaceas amp 20\nص اشور م سيادة').header;
+  check('«ص اشور م سيادة»', { pharmacy: h3.pharmacy, warehouse: h3.warehouse }, { pharmacy: 'اشور', warehouse: 'سيادة' });
+  check('«عدد Bleedaceas amp 20»: العدد أولاً والرقم آخراً', parseItemLine('عدد Bleedaceas amp 20'), { name: 'Bleedaceas amp', quantity: 20, bonus: null });
+  check('«عدد Pandev 40» بلا شكل ⇒ لا حسم (قد تكون جرعة)', parseItemLine('عدد Pandev 40'), null);
+  check('«ص مستشفى النور» بلا «م» مستقلة لا يُقصّ', parseOrderText('ص مستشفى النور\nX (1)').header.pharmacy, 'مستشفى النور');
+  const h4 = parseOrderText('30 ق ازثروا شراب\nص بلازما\nمذخر الجنوب\n@35532415484068');
+  check('ميسان «30 ق ازثروا شراب»', [h4.header.pharmacy, h4.header.warehouse, h4.itemLines.map(l => parseItemLine(l))],
+    ['بلازما', 'الجنوب', [{ name: 'ازثروا شراب', quantity: 30, bonus: null }]]);
+  const catA = [{ id: 60, name: 'AZITRO Susp 200mg/5ml' }, { id: 61, name: 'Azitro 500mg Tab' }];
+  check('«ازثروا شراب» (هيكل 3 حروف + شكل) ← AZITRO Susp', brandDoseFallback('ازثروا شراب', catA)?.canonicalItem?.id, 60);
+  check('«ازثروا» بلا شكل ⇒ لا ربط', brandDoseFallback('ازثروا', catA)?.canonicalItem?.id ?? null, null);
+  check('هيكل 3 حروف لعلامتين ⇒ لا ربط', brandDoseFallback('ازثروا شراب', [...catA, { id: 62, name: 'ZOTARO syrup' }])?.canonicalItem?.id ?? null, null);
+}
+
 console.log(failed ? `\n✗ ${failed} فشل` : '\n✓ كلها ناجحة');
 process.exit(failed ? 1 : 0);

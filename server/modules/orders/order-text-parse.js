@@ -129,6 +129,13 @@ const DOCTOR_LINE_RE = /^\(?\s*(?:ال)?(?:دكتور[ةه]?|طبيب[ةه]?|د)
 const NOTE_LINE_RE = /^\(\s*[^()\da-z]*\)$/i;
 // «@244168991453375» أو «@Ahmed» — إشارة لعضو في الكروب (كلمة واحدة بعد @).
 const MENTION_LINE_RE = /^@[\p{L}\p{N}_.+-]+$/u;
+// «ص الكوثر النموذجية م ساوة» (كروب البصرة، 2026-11-23): المذخر ملصق بذيل سطر الصيدلية
+// بـ«م»/«مذخر» كلمةً مستقلة. ما قبلها الصيدلية وما بعدها المذخر.
+const PHARMACY_TAIL_WAREHOUSE_RE = /^(\S.*?)\s+(?:ال)?(?:م|مذخر)(?:\s*[.:：\-/]\s*|\s+)(\S.*)$/;
+// «تم تجهيز صيدلية الفيحاء Amuklavin 625mg» (2026-11-23): الصيدلية في أول سطر الصنف
+// قبل أول كلمة لاتينية، وقبلها فعل قصير اختياري («تم تجهيز»). الكلمة الكاملة «صيدلية»
+// فقط (لا «ص» وحدها) — وسط جملة عربية «ص» تحتمل غيرها.
+const INLINE_PHARMACY_RE = /^((?:[؀-ۿ]+\s+){0,3}?)(?:ال)?صيدلي[ةه]\s+((?:[؀-ۿ]+\s+){0,3}[؀-ۿ]+)\s+(?=[a-z])(.+)$/i;
 // سهم يفصل حقلين في سطر واحد: «م. الضامن ⬅️ ص. علاء عبد الحسن».
 const ARROW_SPLIT_RE = /\s*(?:[←-⇿➡➔➘-➯⬅-⬇⭠-⭯]️?|<-+|-+>|=>)\s*/u;
 
@@ -198,8 +205,19 @@ export function parseOrderText(text, { isKnownWarehouse: isKnownInDb = () => fal
     if (!HAS_LATIN.test(line) && (DOCTOR_LINE_RE.test(line) || NOTE_LINE_RE.test(line))) return;
     if ((m = line.match(PHARMACY_LINE_RE))) {
       header.pharmacyLines++;
-      if (header.pharmacy == null) { header.pharmacy = tidy(m[1]); pharmacyIdx = idx; }
+      if (header.pharmacy == null) {
+        let ph = tidy(m[1]);
+        const wh = HAS_LATIN.test(ph) || HAS_DIGIT.test(ph) ? null : ph.match(PHARMACY_TAIL_WAREHOUSE_RE);
+        if (wh) { ph = tidy(wh[1]); header.warehouse ??= cleanWarehouseName(wh[2]); }
+        header.pharmacy = ph; pharmacyIdx = idx;
+      }
       return;
+    }
+    // «تم تجهيز صيدلية الفيحاء Amuklavin 625mg» ⏎ «عدد 50»: الصيدلية ترويسة والباقي صنف.
+    if ((m = line.match(INLINE_PHARMACY_RE)) && !HAS_DIGIT.test(m[1] + m[2])) {
+      header.pharmacyLines++;
+      if (header.pharmacy == null) { header.pharmacy = tidy(m[2]); pharmacyIdx = idx; }
+      line = tidy(m[3]);
     }
     if ((m = line.match(AREA_LINE_RE))) {
       header.area ??= tidy(m[1]);
@@ -320,6 +338,11 @@ const UNIT_WRAP_QTY_END = new RegExp(String.raw`\s${COUNT_UNIT}\s*(\d+)\s*${COUN
 // الوحدة (أو البونص «10+1») إلزامية: رقم وحده في أول السطر قد يكون جزءاً من الاسم.
 const UNIT_QTY_START = new RegExp(String.raw`^(\d+)\s*(?:\+\s*(\d+)\s*)?${COUNT_UNIT}\s+(?=\S)`, 'i');
 const PLUS_QTY_START = /^(\d+)\s*\+\s*(\d+)\s+(?=\S)/;
+// «عدد Bleedaceas amp 20» — كلمة العدد أول السطر والرقم آخره (كروب البصرة، 2026-11-23).
+// الاسم بينهما يجب أن يحمل شكلاً صيدلانياً أو رقماً («Amoklavin 625 20»)، وإلا فالرقم
+// الوحيد قد يكون الجرعة («عدد Pandev 40») — يُترك للموديل.
+const COUNT_WORD_START_QTY_END = /^(?:عدد|ع)\s+(.*[a-z].*?)\s+(\d+)(?:\s*\+\s*(\d+))?$/i;
+const NAME_FORM_OR_DOSE_RE = /\d|\b(?:tabs?|tablets?|caps?|capsules?|amps?|ampoules?|vials?|syr|syrup|susp?|suspension|sachets?|supp|drops?|gel|cream|spray|inj|ointment|oint)\b/i;
 // «Amoklavin 20p 1g»، «Amoklavin 20p 625» — الكمية بوحدتها **بين** العلامة والجرعة
 // (طلبية كربلاء، 2026-11-21). الوحدة إلزامية: رقم بلا وحدة في وسط السطر جرعة.
 // والقوس كذلك «Amoklavin (20) 1g».
@@ -350,6 +373,9 @@ export function parseItemLine(line) {
   } else if ((m = s.match(UNIT_QTY_START)) || (m = s.match(PLUS_QTY_START))) {
     quantity = Number(m[1]); name = s.slice(m[0].length);
     if (m[2] != null) bonus = Number(m[2]);
+  } else if ((m = s.match(COUNT_WORD_START_QTY_END)) && NAME_FORM_OR_DOSE_RE.test(m[1])) {
+    quantity = Number(m[2]); name = m[1];
+    if (m[3] != null) bonus = Number(m[3]);
   } else if (((m = s.match(PAREN_QTY_MID)) || (m = s.match(UNIT_QTY_MID))) && m.index > 0
       && shortMidTail(s.slice(m.index + m[0].length))) {
     // ما قبل الكمية + ما بعدها = الاسم بجرعته («Amoklavin 1g»).
