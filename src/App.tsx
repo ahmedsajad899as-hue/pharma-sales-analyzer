@@ -322,7 +322,7 @@ function keepMounted(prev: Set<PageId>, page: PageId): Set<PageId> {
 }
 
 function AppInner() {
-  const { user, hasFeature, token } = useAuth();
+  const { user, hasFeature, token, userVerified } = useAuth();
   // ثيم الوقت: null ما لم يفعّله السوبر أدمن لهذا الحساب (src/lib/timeTheme.ts)
   const tod = useTimeOfDay();
   const isImpersonating = sessionStorage.getItem('_is_impersonating') === '1';
@@ -652,12 +652,14 @@ function AppInner() {
     const isHidden = (pageId: string) =>
       (isMarketerUser(user) && MARKETER_HIDDEN_PAGES.has(pageId))
       || Object.entries(FEATURE_PAGE_MAP).some(([k, p]) => p === pageId && !hasFeature(k));
-    if (!user || !isHidden(activePage)) return;
+    // ننتظر تأكيد /api/auth/me: لقطة مخزّنة قديمة (تبديل حساب/تبويب جديد) كانت تطرد
+    // المستخدم من صفحة مفعّلة فعلاً قبل أن تصل صلاحياته الحقيقية بلحظات.
+    if (!user || !userVerified || !isHidden(activePage)) return;
     const fallback = NAV_ITEMS.find(n =>
       (n.roles.length === 0 || n.roles.includes(user.role)) && !isHidden(n.id));
     if (fallback) navigateTo(fallback.id as PageId);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activePage, user]);
+  }, [activePage, user, userVerified]);
 
 
   // Also mount the initial page

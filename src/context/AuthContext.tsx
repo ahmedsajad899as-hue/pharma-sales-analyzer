@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, ReactNode, useEffect } from 'react';
+import { createContext, useContext, useState, useRef, ReactNode, useEffect } from 'react';
 import { ALL_FEATURE_KEYS, isFeatureEnabled } from '../config/featureConfig';
 import { getAuthToken, getAuthUserRaw, setActiveSession, updateActiveUser, clearActiveSession } from '../lib/authStorage';
 
@@ -36,6 +36,15 @@ function persistSavedAccounts(accounts: SavedAccount[]) {
   localStorage.setItem(SAVED_ACCOUNTS_KEY, JSON.stringify(accounts));
 }
 
+// كل تعديل على قائمة «تبديل الحساب» يُطبَّق على أحدث نسخة في localStorage، لا على نسخة
+// هذا التبويب في الذاكرة: كل تبويب مفتوح كان يكتب قائمته القديمة كاملة فيُرجع لقطات
+// بصلاحيات قديمة (صفحة فُعّلت لاحقاً تعود مخفية عند التبديل لذلك الحساب).
+function mutateSavedAccounts(fn: (list: SavedAccount[]) => SavedAccount[]): SavedAccount[] {
+  const next = fn(loadSavedAccounts());
+  try { persistSavedAccounts(next); } catch { /* storage full/blocked — keep in memory */ }
+  return next;
+}
+
 interface AuthContextType {
   user: AuthUser | null;
   token: string | null;
@@ -45,6 +54,8 @@ interface AuthContextType {
   isManager: boolean;
   isManagerOrAdmin: boolean;
   hasFeature: (key: string) => boolean;
+  /** true بعد أن يؤكد /api/auth/me (أو الدخول) صلاحيات الحساب الحالي في هذا التبويب */
+  userVerified: boolean;
   requiresGps: () => boolean;
   getDoctorFilterPlanMode: () => string;
   getDefaultReportView: () => 'sales' | 'returns' | 'net';
@@ -81,6 +92,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return existing;
   });
 
+  const [verifiedUserId, setVerifiedUserId] = useState<number | null>(null);
+  const refreshNowRef = useRef<() => void>(() => {});
+
   // Verify token and refresh user data (esp. permissions) from the server — on
   // load, whenever the tab regains focus/visibility, and periodically. This makes
   // an admin's change to a user's features take effect on the user's side within
@@ -89,31 +103,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const imp = _isImp();
     let lastRun = 0;
-    const refresh = () => {
-      const storedToken = imp ? sessionStorage.getItem('_imp_token') : getAuthToken();
+    const currentToken = () => imp ? sessionStorage.getItem('_imp_token') : getAuthToken();
+    const refresh = (force?: unknown) => {
+      const storedToken = currentToken();
       if (!storedToken) return;
       const now = Date.now();
-      if (now - lastRun < 15000) return; // at most once / 15s
+      if (force !== true && now - lastRun < 15000) return; // at most once / 15s
       lastRun = now;
       fetch('/api/auth/me', { headers: { Authorization: `Bearer ${storedToken}` } })
         .then(async r => ({ status: r.status, data: await r.json().catch(() => ({})) }))
         .then(({ status, data }) => {
+          // تبدّل الحساب في هذا التبويب أثناء الطلب: الردّ لحساب سابق — لا نخلطه بالحالي.
+          if (currentToken() !== storedToken) return;
           // جلسة «الدخول كحساب»: حدّث نسختها فقط — لا تلمس جلسة الأدمن المحفوظة في localStorage
           if (imp) {
             if (data.user) {
               sessionStorage.setItem('_imp_user', JSON.stringify(data.user));
               setUser(data.user);
+              setVerifiedUserId(data.user.id);
             }
             return;
           }
           if (data.user) {
             updateActiveUser(storedToken, JSON.stringify(data.user));
             setUser(data.user);
-            setSavedAccounts(prev => {
-              const updated = prev.map(a => a.user.id === data.user.id ? { ...a, user: data.user } : a);
-              persistSavedAccounts(updated);
-              return updated;
-            });
+            setVerifiedUserId(data.user.id);
+            setSavedAccounts(mutateSavedAccounts(list =>
+              list.map(a => a.user.id === data.user.id ? { ...a, user: data.user } : a)));
           } else if (status === 401) {
             // التوكن منتهي فعلاً أو الحساب معطّل — فقط عندها نُخرج. أي خطأ آخر
             // (500 من قاعدة البيانات، إعادة تشغيل السيرفر...) كان يُخرج الجميع.
@@ -124,15 +140,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         })
         .catch(() => {/* server offline — keep stored data */});
     };
+    refreshNowRef.current = () => refresh(true);
     refresh(); // on load
     const onVisible = () => { if (document.visibilityState === 'visible') refresh(); };
     document.addEventListener('visibilitychange', onVisible);
     window.addEventListener('focus', refresh);
     const interval = setInterval(refresh, 60000); // periodic (throttle keeps it cheap)
+    // قائمة «تبديل الحساب» حدّثها تبويب آخر — خذ نسخته بدل الاحتفاظ بلقطات قديمة
+    const onStorage = (e: StorageEvent) => { if (e.key === SAVED_ACCOUNTS_KEY) setSavedAccounts(loadSavedAccounts()); };
+    window.addEventListener('storage', onStorage);
     return () => {
       document.removeEventListener('visibilitychange', onVisible);
       window.removeEventListener('focus', refresh);
+      window.removeEventListener('storage', onStorage);
       clearInterval(interval);
+      refreshNowRef.current = () => {};
     };
   }, []);
 
@@ -147,13 +169,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setActiveSession(data.token, JSON.stringify(data.user));
     setToken(data.token);
     setUser(data.user);
+    setVerifiedUserId(data.user.id); // ردّ الدخول طازج من قاعدة البيانات
     // Save this account in the saved accounts list
-    setSavedAccounts(prev => {
-      const filtered = prev.filter(a => a.user.id !== data.user.id);
-      const updated = [{ token: data.token, user: data.user }, ...filtered];
-      persistSavedAccounts(updated);
-      return updated;
-    });
+    setSavedAccounts(mutateSavedAccounts(list =>
+      [{ token: data.token, user: data.user }, ...list.filter(a => a.user.id !== data.user.id)]));
   };
 
   const logout = () => {
@@ -168,25 +187,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const switchAccount = (account: SavedAccount) => {
-    setActiveSession(account.token, JSON.stringify(account.user));
-    setToken(account.token);
-    setUser(account.user);
+    // اللقطة المحفوظة قد تكون أقدم من آخر تعديل للمميزات — أحدث نسخة في localStorage
+    // أولاً، ثم /me فوراً (لا ننتظر الدقيقة الدورية) لتطابق صفحاته قاعدة البيانات.
+    const latest = loadSavedAccounts().find(a => a.user.id === account.user.id && a.token === account.token) ?? account;
+    setActiveSession(latest.token, JSON.stringify(latest.user));
+    setToken(latest.token);
+    setUser(latest.user);
     // Move this account to the front
-    setSavedAccounts(prev => {
-      const filtered = prev.filter(a => a.user.id !== account.user.id);
-      const updated = [account, ...filtered];
-      persistSavedAccounts(updated);
-      return updated;
-    });
+    setSavedAccounts(mutateSavedAccounts(list => [latest, ...list.filter(a => a.user.id !== latest.user.id)]));
+    refreshNowRef.current();
   };
 
   const removeSavedAccount = (userId: number) => {
-    setSavedAccounts(prev => {
-      const updated = prev.filter(a => a.user.id !== userId);
-      persistSavedAccounts(updated);
-      return updated;
-    });
+    setSavedAccounts(mutateSavedAccounts(list => list.filter(a => a.user.id !== userId)));
   };
+
+  // الصلاحيات تأكدت من السيرفر لهذا الحساب في هذا التبويب (لا لقطة مخزّنة قديمة)
+  const userVerified = user != null && verifiedUserId === user.id;
 
   const isAdmin          = user?.role === 'admin';
   const isManager        = user?.role === 'manager';
@@ -231,7 +248,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, token, login, logout, isAdmin, isManager, isManagerOrAdmin, hasFeature, requiresGps, getDoctorFilterPlanMode, getDefaultReportView, savedAccounts, switchAccount, removeSavedAccount }}>
+    <AuthContext.Provider value={{ user, token, login, logout, isAdmin, isManager, isManagerOrAdmin, hasFeature, userVerified, requiresGps, getDoctorFilterPlanMode, getDefaultReportView, savedAccounts, switchAccount, removeSavedAccount }}>
       {children}
     </AuthContext.Provider>
   );
