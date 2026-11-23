@@ -509,5 +509,22 @@ check('منطقة الموديل غير المذكورة في سطر المذخ�
 }
 // [/invisible]
 
+// [arabic-item-qty] 2026-11-23 (المرسِل «محمد»): اسم صنف عربي وحده ثم كميته بأرقام هندية في السطر
+// التالي. كان «ديدروفوم» يُقرأ منطقة و«30ق» صنفاً بكمية 0.
+{
+  const r = parseOrderText('ديدروفوم\n٣٠ق\nصيدليه زمزم\nمذخر دجله\nتم التجهيز');
+  check('«ديدروفوم ⏎ ٣٠ق»: الصنف والكمية', r.itemLines.map(l => parseItemLine(l)), [{ name: 'ديدروفوم', quantity: 30, bonus: null }]);
+  check('«ديدروفوم ⏎ ٣٠ق»: الترويسة بلا منطقة', [r.header.pharmacy, r.header.area, r.header.warehouse], ['زمزم', null, 'دجله']);
+  const areaOf = (t) => (t === 'الحرية' ? 'الحرية' : null);
+  const a = parseOrderText('الحرية\n(5)\nص العترة\nX 10 p', { areaOf });
+  check('منطقة مسجّلة فوق سطر كمية تبقى منطقة', [a.header.area, a.itemLines], ['الحرية', ['(5)', 'X 10 p']]);
+  const s = parseOrderText('Pandev 40 (10)\nص النور\nتم التجهيز');
+  check('«تم التجهيز» في الذيل لا يصير مذخراً', s.header.warehouse, null);
+  check('«تم التجهيز من مذخر اسبرين» يبقى مذخراً', parseOrderText('ص النور\nPandev 40 (10)\nتم التجهيز من مذخر اسبرين').header.warehouse, 'اسبرين');
+  check('«بانادول اكسترا ⏎ 2 علبة»', parseOrderText('ص النور\nبانادول اكسترا\n2 علبة').itemLines.map(l => parseItemLine(l)),
+    [{ name: 'بانادول اكسترا', quantity: 2, bonus: null }]);
+}
+// [/arabic-item-qty]
+
 console.log(failed ? `\n✗ ${failed} فشل` : '\n✓ كلها ناجحة');
 process.exit(failed ? 1 : 0);

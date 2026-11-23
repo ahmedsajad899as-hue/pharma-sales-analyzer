@@ -146,6 +146,9 @@ const ARROW_SPLIT_RE = /\s*(?:[←-⇿➡➔➘-➯⬅-⬇⭠-⭯]️?|<-+|-+>|=
 // «اضافة» وحدها في سطر: المندوب يردّ على طلبية سابقة ويضيف أصنافاً (كربلاء 2026-11-23).
 // الصيدلية والمذخر تؤخذ من الرسالة المقتبسة (bot-order-flow) — السطر نفسه ليس ترويسة.
 const ADDITION_LINE_RE = /^(?:ال)?(?:[اإأ]ضاف[ةه]|[اإأ]ضافات|زياد[ةه]|تكمل[ةه]|ملحق)(?:\s+(?:على|ع|عل|ل|الى|إلى)(?:\s+\S+){0,2})?\s*[:：.!\-]*$/;
+// [arabic-item-qty] «تم التجهيز»، «تم الارسال»، «جاهزة» وحدها في سطر — حالة الطلبية، لا مذخر ولا منطقة.
+const STATUS_LINE_RE = /^(?:تم\s+)?(?:ال)?(?:تجهيز|ارسال|إرسال|استلام|توصيل|تسليم)(?:ها|ه|ة)?\s*[.!]*$|^(?:تم|جاهز[ةه]?)\s*[.!]*$/;
+// [/arabic-item-qty]
 /** هل في النص سطر «اضافة» (ردّ يضيف أصنافاً لطلبية سابقة)؟ */
 export const hasAdditionLine = (text) => toLatinDigits(text).split(/\r?\n/).some(l => ADDITION_LINE_RE.test(tidy(l)));
 
@@ -202,6 +205,21 @@ export function parseOrderText(text, { isKnownWarehouse: isKnownInDb = () => fal
       lastItemIdx = idx;
       return;
     }
+    // [arabic-item-qty] «ديدروفوم» ⏎ «٣٠ق» (2026-11-23): اسم صنف عربي بلا رقم في سطر وكميته في
+    // السطر التالي. كان الاسم يُعدّ ترويسة (منطقة) و«30ق» صنفاً بكمية 0. سطر الكمية الوحيد يجعل
+    // السطر العربي فوقه صنفاً — ما لم يكن منطقة مسجّلة أو مذخراً معروفاً أو جملة.
+    if ((m = line.match(QTY_ONLY_RE)) && loose.length && loose[loose.length - 1].idx === idx - 1) {
+      const prev = loose[loose.length - 1];
+      if (prev.text.split(/\s+/).length <= 3 && !areaOf(prev.text) && !isKnownWarehouse(prev.text)
+          && !TAIL_NOT_WAREHOUSE_RE.test(` ${prev.text} `)) {
+        loose.pop();
+        itemLines.push(`${prev.text} (${m[1]}${m[2] != null ? `+${m[2]}` : ''})`);
+        if (firstItemIdx < 0) firstItemIdx = prev.idx;
+        lastItemIdx = idx;
+        return;
+      }
+    }
+    // [/arabic-item-qty]
     if ((m = line.match(WAREHOUSE_LINE_RE)) && !HAS_LATIN.test(line)) {
       // «تجهز ترانزيت من مذخر الناقوس بسبب عدم الانضمام…» ← «الناقوس» فقط.
       header.warehouse ??= cleanWarehouseName(m[1]);
@@ -214,6 +232,7 @@ export function parseOrderText(text, { isKnownWarehouse: isKnownInDb = () => fal
       return;
     }
     if (!HAS_LATIN.test(line) && (DOCTOR_LINE_RE.test(line) || NOTE_LINE_RE.test(line))) return;
+    if (STATUS_LINE_RE.test(line)) return; // [arabic-item-qty]
     if ((m = line.match(PHARMACY_LINE_RE))) {
       header.pharmacyLines++;
       if (header.pharmacy == null) {
