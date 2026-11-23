@@ -19,6 +19,7 @@ import { normalizeItemKey, normalizeAreaName } from '../../lib/itemResolver.js';
 import { MAX_ORDER_TEXT_LEN, stripTriggerPrefix } from './order-trigger.js';
 import { reconcileRowsWithText, normKey, KNOWN_WAREHOUSES, parseOrderText, parseItemLine } from './order-text-parse.js';
 import prisma from '../../lib/prisma.js';
+import { loadFormNumberQty } from '../../lib/formNumberQty.js';
 
 // أسماء المذاخر المعروفة (دفتر رصيد المذاخر) — تكشف سطر مذخر كُتب بلا كلمة «مذخر»
 // («دواء الكندي»). عامة بلا نطاق حساب: الاسم وحده لا يكشف بيانات، والخطأ الوحيد
@@ -274,29 +275,57 @@ export const imageModelMode = (mode) => (['auto', 'strong', 'lite'].includes(mod
  * قيست 2026-11-09 على حالات المقارنة: 12/20 حُسمت هكذا، كلها صحيحة، والباقي
  * (دردشة، كمية بالكلمات، ترويسة سطر واحد بلا «ص») رُدّ للذكاء.
  */
-export async function parseOrderRowsWithoutAi(text, { todayISO } = {}) {
+export async function parseOrderRowsWithoutAi(text, { todayISO, fallbackHeader = null } = {}) {
   const raw = String(text ?? '').trim();
   if (!raw || raw.length > MAX_ORDER_TEXT_LEN) return null;
-  const { header, itemLines } = await parseTextShape(raw);
+  const { header, itemLines, formNumberQty } = await parseTextShape(raw, fallbackHeader);
   if (!header.pharmacy || !itemLines.length) return null;
-  const items = itemLines.map(parseItemLine);
+  const items = itemLines.map(l => parseItemLine(l, { formNumberQty }));
   if (items.some(i => !i)) return null;
   return shapeRows(header, items, todayISO);
 }
 
+/**
+ * ردّ «اضافة» على طلبية سابقة بلا ترويسة: الصيدلية/المنطقة/المذخر من الرسالة المقتبسة
+ * تملأ ما لم يكتبه الردّ نفسه. صيدلية مكتوبة في الردّ تغلب دائماً.
+ */
+function withFallbackHeader(header, fb) {
+  if (!fb?.pharmacy || header.pharmacy || header.pharmacyLines > 0) return header;
+  return {
+    ...header,
+    pharmacy: fb.pharmacy, pharmacyLines: 1,
+    area: header.area ?? fb.area ?? null,
+    warehouse: header.warehouse ?? fb.warehouse ?? null,
+  };
+}
+
+/**
+ * ترويسة نصّ طلبية (صيدلية/منطقة/مذخر) — للرسالة المقتبسة في ردّ «اضافة».
+ * null إن لم يحسم النصّ صيدلية واحدة.
+ */
+export async function headerFromOrderText(text) {
+  const raw = String(text ?? '').trim();
+  if (!raw || raw.length > MAX_ORDER_TEXT_LEN) return null;
+  const { header } = await parseTextShape(raw);
+  return header.pharmacy && header.pharmacyLines === 1
+    ? { pharmacy: cleanName(header.pharmacy), area: cleanName(header.area), warehouse: cleanName(header.warehouse) }
+    : null;
+}
+
 /** تصنيف أسطر النص مع أسماء المذاخر والمناطق المسجّلة (مشترك بين القراءتين أدناه). */
-async function parseTextShape(raw) {
-  const [known, areas] = await Promise.all([loadKnownWarehouseKeys(), loadKnownAreaIndex()]);
-  return parseOrderText(raw, {
+async function parseTextShape(raw, fallbackHeader = null) {
+  const [known, areas, formNumberQty] = await Promise.all([loadKnownWarehouseKeys(), loadKnownAreaIndex(), loadFormNumberQty()]);
+  const shape = parseOrderText(raw, {
     isKnownWarehouse: (t) => {
       const k = normKey(t);
       return known.has(k) || known.has(normKey(t.replace(/^(?:دواء|ادوية|أدوية)\s+/, '')));
     },
     areaOf: (t) => areas.get(normalizeAreaName(t)) ?? null,
   });
+  return { ...shape, header: withFallbackHeader(shape.header, fallbackHeader), formNumberQty };
 }
 
-const shapeRows = (header, items, todayISO) => {
+const shapeRows =(header, items, todayISO) => {
   const today = todayISO || new Date().toISOString().slice(0, 10);
   return items.map(i => ({
     item: cleanName(i.name),
@@ -325,12 +354,12 @@ const LATIN_NAME_RE = /[a-z]{3,}/i;
  * المذخر كما قُرئا أو فارغين. الشكّ الكبير = سطر صنف واحد على الأقل باسم لاتيني (≥3
  * أحرف) أو بكمية صريحة. دردشة عربية بأرقام («تم التسليم 2») لا تمرّ.
  */
-export async function parseOrderRowsForReview(text, { todayISO } = {}) {
+export async function parseOrderRowsForReview(text, { todayISO, fallbackHeader = null } = {}) {
   const raw = String(text ?? '').trim();
   if (!raw || raw.length > MAX_ORDER_TEXT_LEN) return null;
-  const { header, itemLines } = await parseTextShape(raw);
+  const { header, itemLines, formNumberQty } = await parseTextShape(raw, fallbackHeader);
   if (!itemLines.length || itemLines.length > REVIEW_MAX_ITEMS) return null;
-  const items = itemLines.map(l => parseItemLine(l) || { name: l, quantity: null, bonus: null });
+  const items = itemLines.map(l => parseItemLine(l, { formNumberQty }) || { name: l, quantity: null, bonus: null });
   // أو صنف عربي فيه رقم تحت سطر «ص» مُعلَّم («تينتيز 10» — كروب ميسان 2026-11-21):
   // الاسم العربي وحده لا يكفي دليلاً، لكن مع ترويسة صيدلية صريحة فهو طلبية.
   const suspicious = items.some(i => i.quantity != null || LATIN_NAME_RE.test(i.name))
@@ -347,12 +376,12 @@ export async function parseOrderRowsForReview(text, { todayISO } = {}) {
  *  off    — لا قراءة.
  * وفي الأوضاع الثلاثة: ما لم يُقرأ لكن شكله طلبية ⇒ readBy='review' (تُرفع للتصحيح ولا تضيع).
  */
-export async function extractOrderRowsByMode(text, { mode = 'both', todayISO, throwOnAiFailure = false, allowReview = true } = {}) {
+export async function extractOrderRowsByMode(text, { mode = 'both', todayISO, throwOnAiFailure = false, allowReview = true, fallbackHeader = null } = {}) {
   if (mode === 'off') return { rows: [], readBy: null };
   let rows = [];
   if (mode !== 'ai') {
     let parsed = null;
-    try { parsed = await parseOrderRowsWithoutAi(text, { todayISO }); }
+    try { parsed = await parseOrderRowsWithoutAi(text, { todayISO, fallbackHeader }); }
     catch (e) { console.error('[orders] المحلل بلا ذكاء:', e?.message); }
     if (parsed?.length) return { rows: parsed, readBy: 'parser' };
   }
@@ -362,7 +391,7 @@ export async function extractOrderRowsByMode(text, { mode = 'both', todayISO, th
   }
   if (!allowReview) return { rows: [], readBy: null };
   let review = null;
-  try { review = await parseOrderRowsForReview(text, { todayISO }); }
+  try { review = await parseOrderRowsForReview(text, { todayISO, fallbackHeader }); }
   catch (e) { console.error('[orders] قراءة للمراجعة:', e?.message); }
   return review?.length ? { rows: review, readBy: 'review' } : { rows: [], readBy: null };
 }
@@ -383,7 +412,9 @@ export async function extractOrderRowsByMode(text, { mode = 'both', todayISO, th
 // 13: «Moxiblav 312» = «312.5MG» (عدد صحيح = عشري مقصوص بفرق ≤1%) — كسرها إصلاح 12.
 // 14 (2026-11-23): «تم تجهيز صيدلية X Brand» الصيدلية من سطر الصنف، «ص X م Y» المذخر منفصل،
 //     «عدد Brand amp 20» (البصرة/ميسان).
-export const TEXT_PARSE_VERSION = 14;
+// 15 (2026-11-23): «Vomibreak tab 5» الرقم بعد الشكل كمية إن لم تكن جرعةً للعلامة في الكتالوج،
+//     وسطر «اضافة» (ردّ على طلبية سابقة) لا يُعدّ ترويسة.
+export const TEXT_PARSE_VERSION = 15;
 
 /**
  * القراءة الحتمية للنصّ تغلب اجتهاد الموديل حيث يحسم الشكل: ترويسة متعدّدة الأسطر
@@ -392,9 +423,9 @@ export const TEXT_PARSE_VERSION = 14;
  * كانت ستستبدل اسم الكتالوج بالاسم المكتوب.
  */
 export async function applyTextParse(rows, text, { headerOnly = false } = {}) {
-  const [known, areas] = await Promise.all([loadKnownWarehouseKeys(), loadKnownAreaIndex()]);
+  const [known, areas, formNumberQty] = await Promise.all([loadKnownWarehouseKeys(), loadKnownAreaIndex(), loadFormNumberQty()]);
   return reconcileRowsWithText(rows, text, {
-    headerOnly,
+    headerOnly, formNumberQty,
     isKnownWarehouse: (t) => {
       const k = normKey(t);
       return known.has(k) || known.has(normKey(t.replace(/^(?:دواء|ادوية|أدوية)\s+/, '')));

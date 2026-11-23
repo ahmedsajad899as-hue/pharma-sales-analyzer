@@ -97,7 +97,9 @@ function botDrafts(o: BotOrder): Draft[] {
         const q = numOf(r.quantity);
         const unit = r.unitPrice != null && r.unitPrice !== '' ? numOf(r.unitPrice) : (numOf(r.total) && q ? numOf(r.total) / q : null);
         return {
-          itemId: r._itemId ?? null, itemName: String(r.item ?? ''), writtenAs: String(r.item ?? ''),
+          // writtenAs = ما كتبه المندوب ولم يُربط — اختيار صنف له يُحفَظ قاعدةً (rememberItems).
+          // الصنف المربوط آلياً اسمه اسم الكتالوج، فلا يُتذكَّر تغييره كأنه «كُتب هكذا».
+          itemId: r._itemId ?? null, itemName: String(r.item ?? ''), writtenAs: r._itemId ? '' : String(r.item ?? ''),
           quantity: q, bonusQty: numOf(r.bonus), matched: Boolean(r._itemId), suggestions: [],
           companyName: r.company || null, unitPrice: unit,
         };
@@ -723,9 +725,15 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
     for (const batch of batches) {
       for (const d of batch) patch(d.key, { state: 'saving', result: undefined });
       const orderId = batch[0].bot?.orderId;
+      // «اموكلافين شراب» اختار له المراجِع صنفاً ⇒ قاعدة توحيد، فتُربط الطلبية القادمة بنفس
+      // الكتابة تلقائياً (نفس rememberItems في جدول المراجعة القديم).
+      const rememberItems = batch.filter(d => d.bot).flatMap(d => d.lines
+        .filter(l => l.itemId && l.quantity > 0 && l.writtenAs.trim() && sKey(l.writtenAs) !== sKey(l.itemName))
+        .map(l => ({ from: l.writtenAs.trim(), toItemId: l.itemId as number })));
       try {
         const r = await salesPost<{ addedCount?: number; skippedCount?: number; uploadedFile?: { id: number } }>('manual', {
           rows: batch.flatMap(d => liqRows(d) as any[]), target, ...(orderId ? { pendingOrderIds: [orderId] } : {}),
+          ...(rememberItems.length ? { rememberItems } : {}),
         });
         const added = r?.addedCount ?? 0, skipped = r?.skippedCount ?? 0;
         fileId = fileId ?? r?.uploadedFile?.id;

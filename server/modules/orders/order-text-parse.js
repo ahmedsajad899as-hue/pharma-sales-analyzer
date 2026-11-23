@@ -138,6 +138,11 @@ const PHARMACY_TAIL_WAREHOUSE_RE = /^(\S.*?)\s+(?:ال)?(?:م|مذخر)(?:\s*[.:
 const INLINE_PHARMACY_RE = /^((?:[؀-ۿ]+\s+){0,3}?)(?:ال)?صيدلي[ةه]\s+((?:[؀-ۿ]+\s+){0,3}[؀-ۿ]+)\s+(?=[a-z])(.+)$/i;
 // سهم يفصل حقلين في سطر واحد: «م. الضامن ⬅️ ص. علاء عبد الحسن».
 const ARROW_SPLIT_RE = /\s*(?:[←-⇿➡➔➘-➯⬅-⬇⭠-⭯]️?|<-+|-+>|=>)\s*/u;
+// «اضافة» وحدها في سطر: المندوب يردّ على طلبية سابقة ويضيف أصنافاً (كربلاء 2026-11-23).
+// الصيدلية والمذخر تؤخذ من الرسالة المقتبسة (bot-order-flow) — السطر نفسه ليس ترويسة.
+const ADDITION_LINE_RE = /^(?:ال)?(?:[اإأ]ضاف[ةه]|[اإأ]ضافات|زياد[ةه]|تكمل[ةه]|ملحق)(?:\s+(?:على|ع|عل|ل|الى|إلى)(?:\s+\S+){0,2})?\s*[:：.!\-]*$/;
+/** هل في النص سطر «اضافة» (ردّ يضيف أصنافاً لطلبية سابقة)؟ */
+export const hasAdditionLine = (text) => toLatinDigits(text).split(/\r?\n/).some(l => ADDITION_LINE_RE.test(tidy(l)));
 
 const HAS_LATIN = /[a-z]/i;
 const HAS_DIGIT = /\d/;
@@ -182,6 +187,7 @@ export function parseOrderText(text, { isKnownWarehouse: isKnownInDb = () => fal
     let m;
     // «@244168991453375» — إشارة واتساب لعضو، ليست صنفاً ولا ترويسة.
     if (MENTION_LINE_RE.test(line)) return;
+    if (ADDITION_LINE_RE.test(line)) return;
     lastContentIdx = idx;
     // «10 قطعة» وحدها في سطر بعد «Amikavir 5 amp» (كروب الديوانية #220، 2026-11-17):
     // هي كمية الصنف الذي فوقها، و«5 amp» حجم العبوة في اسمه. تُلصق بسطره بين قوسين.
@@ -352,13 +358,18 @@ const PAREN_QTY_MID = new RegExp(String.raw`\s*\(\s*(\d+)\s*(?:\+\s*(\d+)\s*)?${
 // «تم سحب amoklavine 1g 30 قطعة عن طريق مذخر …» لها قارئ جُمَل خاص بها.
 const MID_TAIL_STOP_RE = /(?:^|\s)(?:مذخر|مذاخر|صيدلي[ةه]|ص|من|عن|ل|لـ|الى|إلى|طريق|تم)(?:\s|$)/;
 const shortMidTail = (t) => t.trim().split(/\s+/).length <= 3 && !MID_TAIL_STOP_RE.test(t);
+// «Vomibreak tab 5» — رقم بلا وحدة بعد كلمة الشكل الصيدلاني (كربلاء 2026-11-23). ملتبس
+// بذاته: «Azitro tab 500» و«Concor tab 5» جرعة. يُقرأ كمية فقط إن أكّد المستدعي
+// (opts.formNumberQty) أن لا صنف من العلامة يحمل هذه الجرعة في الكتالوج.
+const FORM_NUM_END = /^(.*?[a-z].*?\s(?:tabs?|tablets?|caps?|capsules?|amps?|ampoules?|vials?|syr|syrup|susp?|suspension|sachets?|supp|drops?|gel|cream|spray|inj))\.?\s*(\d{1,3})$/i;
 
 /**
  * يقرأ الكمية من سطر صنف حين يحدّدها **الشكل** بلا لبس: بين قوسين، أو «ك+ب»،
  * أو رقم متبوع بوحدة عدّ. يُعيد null حين لا شكل صريحاً (الموديل يقرّر).
+ * @param {{ formNumberQty?: (name:string, n:number) => boolean }} [opts]
  * @returns {{ name: string, quantity: number, bonus: number|null } | null}
  */
-export function parseItemLine(line) {
+export function parseItemLine(line, opts = {}) {
   const s = tidy(toLatinDigits(line));
   let m, name, quantity, bonus = null;
   if ((m = s.match(PAREN_QTY_END)) || (m = s.match(CLOSE_QTY_END))) {
@@ -381,6 +392,9 @@ export function parseItemLine(line) {
     // ما قبل الكمية + ما بعدها = الاسم بجرعته («Amoklavin 1g»).
     quantity = Number(m[1]); name = `${s.slice(0, m.index)} ${s.slice(m.index + m[0].length)}`;
     if (m[2] != null) bonus = Number(m[2]);
+  } else if ((m = s.match(FORM_NUM_END)) && typeof opts.formNumberQty === 'function'
+      && opts.formNumberQty(tidy(m[1]), Number(m[2]))) {
+    quantity = Number(m[2]); name = m[1];
   } else {
     return null;
   }
@@ -461,7 +475,7 @@ export function reconcileRowsWithText(rows, text, opts = {}) {
     const idx = itemLines.findIndex((l, i) => !used.has(i) && normKey(l).includes(brand));
     if (idx < 0) continue;
     used.add(idx);
-    const parsed = parseItemLine(itemLines[idx]);
+    const parsed = parseItemLine(itemLines[idx], opts);
     if (!parsed) continue;
     if (row._itemId != null && normKey(parsed.name) !== normKey(row.item)) {
       // صفّ طوبِق سابقاً (طلبية قديمة تُعاد قراءتها): ربطه وشركته وسعره من الكتالوج

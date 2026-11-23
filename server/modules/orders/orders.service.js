@@ -1107,6 +1107,66 @@ function toImageList(imageFiles) {
   );
 }
 
+// ─── الطلبية برسالتها في الكروب (ردّ «اضافة» + تعديل الرسالة) ────────────────
+// معرّف رسالة تلكرام رقم، وواتساب نصّ («3EB0…») — يُخزَّن كما هو في payload.sourceMessageId.
+const storedMessageId = (id) => (id == null || id === '' ? null : /^\d+$/.test(String(id)) ? Number(id) : String(id));
+
+/** الطلبيات المعلَّقة (كل أجزائها عند المدراء) التي أنشأتها رسالة بعينها في محادثة. */
+export async function findPendingByMessage(chatId, messageId) {
+  const mid = storedMessageId(messageId);
+  if (mid == null || chatId == null) return [];
+  return prisma.pendingBotOrder.findMany({
+    where: { chatId: String(chatId), payload: { path: ['sourceMessageId'], equals: mid } },
+    select: { id: true, userId: true, kind: true, sourceText: true, sourceHash: true, payload: true, imageFiles: true },
+    orderBy: { id: 'asc' },
+  });
+}
+
+/**
+ * ترويسة طلبية معلَّقة أنشأتها الرسالة المقتبسة (صيدلية/منطقة/مذخر من صفوفها المقروءة).
+ * تغطّي طلبيات الصور والتي قرأها الذكاء — نصّ الاقتباس وحده لا يكفي لها.
+ */
+export async function pendingHeaderForMessage(chatId, messageId) {
+  const list = await findPendingByMessage(chatId, messageId).catch(() => []);
+  for (const p of list) {
+    const r = (Array.isArray(p.payload?.rows) ? p.payload.rows : []).find(x => x && String(x.pharmacy ?? '').trim());
+    if (r) return { pharmacy: r.pharmacy, area: r.area || null, warehouse: r.warehouse || null };
+  }
+  return null;
+}
+
+/**
+ * رسالة عُدِّلت بعد قراءتها: تُحذف قراءتها القديمة المعلَّقة (عدا ما أُعيد استعماله في
+ * keepIds — نصّ لم يتغيّر). طلبية يحفظها شخص الآن لا تُمسّ. يُعيد عدد المحذوف.
+ */
+export async function dropSupersededPending(list, keepIds = []) {
+  let n = 0;
+  for (const p of list || []) {
+    if (keepIds.includes(p.id) || claimFresh(p.payload?.claim)) continue;
+    const del = await prisma.pendingBotOrder.deleteMany({ where: { id: p.id } }).catch(() => ({ count: 0 }));
+    if (del.count) { n++; await unlinkImages(p.imageFiles); }
+  }
+  return n;
+}
+
+/**
+ * تعديل كابشن طلبية صورة: الصورة لا تُرسَل مع التعديل، فتُطبَّق ترويسة النصّ الجديد
+ * (صيدلية/منطقة/مذخر) على الصفوف المقروءة سابقاً ويُحفظ النصّ الجديد.
+ */
+export async function applyCaptionEdit(list, text) {
+  let n = 0;
+  for (const p of list || []) {
+    if (claimFresh(p.payload?.claim)) continue;
+    const rows = (Array.isArray(p.payload?.rows) ? p.payload.rows : []).filter(Boolean);
+    if (rows.length) await applyTextParse(rows, text, { headerOnly: true });
+    await prisma.pendingBotOrder.update({
+      where: { id: p.id },
+      data: { sourceText: String(text || '').trim() || null, payload: { ...(p.payload || {}), rows }, rowCount: rows.length },
+    }).then(() => { n++; }).catch(e => console.error(`[orders] تعديل كابشن #${p.id}:`, e?.message));
+  }
+  return n;
+}
+
 // ─── تحويل الطلبية لمدير الشركة صاحب الايتم ─────────────────────────────────
 // (2026-10-19، طلب صاحب المشروع) طلبية فيها «Pantactive» تخصّ مدير humanis: هو من
 // يدقّقها ويوافق عليها، لا حساب الكروب. الصفوف تُقسَّم بحسب مالك كل ايتم
@@ -1228,6 +1288,8 @@ export async function ingestBotOrder({
   maxPending = MAX_PENDING_ORDERS_PER_USER, readBy = null,
   // false = تسجيل مبيع فقط (نموذج واتساب «مبيع تمّ») — لا إرسال للمذخر
   dispatch = true,
+  // مصفوفة اختيارية تُملأ بأرقام الطلبيات المنشأة/المستبدلة (تعديل الرسالة يحتاجها)
+  idsOut = null,
 }) {
   if (!rows?.length) throw new AppError('لم أتعرّف على أي صنف في هذه الطلبية.', 422, 'NO_ORDER_ROWS');
 
@@ -1255,7 +1317,8 @@ export async function ingestBotOrder({
     // من قرأها: 'parser' (بلا ذكاء) | 'ai' — يُعرض وسماً في طابور المراجعة لمراقبة المحلل.
     ...(readBy ? { readBy } : {}),
     // رسالة المرسِل في الكروب — كي يجد «كشف» (ردّاً عليها) هذه الطلبية.
-    ...(sourceMessageId ? { sourceMessageId: Number(sourceMessageId) } : {}),
+    // تلكرام رقم، واتساب نصّ (كان Number() يجعله NaN ⇒ null فلا يُعرف ردّ ولا تعديل عليه).
+    ...(storedMessageId(sourceMessageId) != null ? { sourceMessageId: storedMessageId(sourceMessageId) } : {}),
   });
 
   const lines = [];
@@ -1282,6 +1345,7 @@ export async function ingestBotOrder({
     lines.push(`${r.replaced ? '🔄' : '↪️'} #${r.id} حُوِّلت لمدير ${f.companyName || 'الشركة'} (${f.managerName}) — ${f.rows.length} صنف`);
   }
   if (forwards.length && !keep.length) lines.unshift('تم الاستلام والتحليل');
+  if (Array.isArray(idsOut)) idsOut.push(...pendingIds);
   // سجلّ الصور المحلَّلة (لوحة الماستر): لمن ذهبت الطلبية ومن حُوِّلت له.
   linkInvoiceReadLogs([
     ...(keep.length ? [{ orderId: pendingIds[0], userId: user.id, name: displayNameOf(user), forwarded: false, rows: keep }] : []),

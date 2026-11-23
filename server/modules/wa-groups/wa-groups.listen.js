@@ -19,7 +19,7 @@ import { fileURLToPath } from 'url';
 import prisma from '../../lib/prisma.js';
 import { normalizeWaId } from '../../lib/waId.js';
 import { handleIncomingOrderMessage } from '../orders/bot-order-flow.js';
-import { countPendingOrders, MAX_PENDING_SILENT_PER_USER } from '../orders/orders.service.js';
+import { countPendingOrders, MAX_PENDING_SILENT_PER_USER, findPendingByMessage } from '../orders/orders.service.js';
 import { retryable, shouldDeferForFullQueue, QUEUE_FULL_CODE } from './listen-retry.js';
 import { effectiveImageMode } from '../orders/order-extract.js';
 
@@ -145,6 +145,30 @@ export function listRetryingByJid() {
   return out;
 }
 
+// ─── الرسائل التي صارت طلبيات (لتعديلها لاحقاً) ─────────────────────────────
+// تعديل رسالة صارت طلبية ثم حُفظت أو أُلغيت (فلم تعد في الطابور) لا يُقرأ من جديد — وإلا
+// عادت طلبية محفوظة للطابور مكرّرة. على القرص لأن التعديل قد يأتي بعد إعادة تشغيل.
+const QUEUED_FILE = path.join(INBOX_DIR, '..', 'wa-group-queued.json');
+const QUEUED_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+let queuedIds = null; // { msgId: at }
+function loadQueued() {
+  if (queuedIds) return queuedIds;
+  try { queuedIds = JSON.parse(fs.readFileSync(QUEUED_FILE, 'utf8')) || {}; } catch { queuedIds = {}; }
+  return queuedIds;
+}
+function markQueued(msgId) {
+  if (!msgId) return;
+  const ids = loadQueued();
+  const now = Date.now();
+  ids[msgId] = now;
+  for (const [k, at] of Object.entries(ids)) if (now - at > QUEUED_TTL_MS) delete ids[k];
+  try {
+    fs.mkdirSync(path.dirname(QUEUED_FILE), { recursive: true });
+    fs.writeFileSync(QUEUED_FILE, JSON.stringify(ids));
+  } catch (e) { console.error('[wa-groups] حفظ سجلّ الطلبيات:', e?.message); }
+}
+const wasQueued = (msgId) => Boolean(msgId && loadQueued()[msgId]);
+
 // ─── العدّادات (تشخيص فقط — فشلها لا يمسّ المعالجة) ─────────────────────────
 
 const bumpCounters = (jid, data) =>
@@ -157,6 +181,8 @@ async function processMessage(m, link) {
   const outcome = { failed: null };
   const user = await prisma.user.findUnique({ where: { id: link.userId } });
   if (!user?.isActive) return outcome;
+  // تعديل رسالة صارت طلبية ولم تعد معلَّقة (حُفظت أو أُلغيت) ⇒ لا قراءة ثانية
+  if (m.editOf && wasQueued(m.editOf) && !(await findPendingByMessage(link.jid, m.editOf)).length) return outcome;
   // صورة أو ملف PDF (فاتورة من نظام المذخر) — extractInvoiceRows يميّز النوع من البايتات
   const media = m.imageBase64 || m.docBase64 || null;
   const buffer = media ? Buffer.from(media, 'base64') : null;
@@ -177,17 +203,24 @@ async function processMessage(m, link) {
       sendText: async () => null, // قراءة صامتة: لا شيء يخرج من الرقم أبداً
       downloadMedia: async () => buffer,
       resolveSenderRep,
-      onQueued: () => bumpCounters(link.jid, { orderCount: { increment: 1 }, lastOrderAt: new Date() }),
+      onQueued: () => {
+        markQueued(m.editOf || m.msgId);
+        return bumpCounters(link.jid, { orderCount: { increment: 1 }, lastOrderAt: new Date() });
+      },
       onAttached: () => bumpCounters(link.jid, { attachedCount: { increment: 1 }, lastOrderAt: new Date() }),
       onFailed: (err) => { outcome.failed = err; },
     },
     link, user,
     chatId: link.jid, chatTitle: link.name || null,
+    // معرّف الرسالة يُحفَظ مع الطلبية: ردّ «اضافة» عليها وتعديلها لاحقاً يجدانها به
+    messageId: m.msgId || null,
     senderName: m.senderName || null,
     senderId: senderPhone(m),
     text: String(m.text || '').trim(),
     mediaRefs: ref ? [ref] : [],
     isReplyToBot: false,
+    quoted: m.quotedId || m.quotedText ? { id: m.quotedId || null, text: m.quotedText || null } : null,
+    editOf: m.editOf || null,
   });
   return outcome;
 }

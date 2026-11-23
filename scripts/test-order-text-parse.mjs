@@ -434,5 +434,25 @@ check('منطقة الموديل غير المذكورة في سطر المذخ�
   check('هيكل 3 حروف لعلامتين ⇒ لا ربط', brandDoseFallback('ازثروا شراب', [...catA, { id: 62, name: 'ZOTARO syrup' }])?.canonicalItem?.id ?? null, null);
 }
 
+// ─── 2026-11-23: كربلاء — ردّ «اضافة» على طلبية سابقة + «Vomibreak tab 5» ────────
+{
+  const { makeFormNumberQty } = await import('../server/lib/formNumberQty.js');
+  const fnq = makeFormNumberQty(['VOMIBREAK 8MG TAB', 'VOMIBREAK 4MG 10TAB', 'Azitro 500mg Tab', 'CONCOR 5MG 30TAB', 'AMOKLAVIN 1G 14TAB']);
+  check('«Vomibreak tab 5»: 5 ليست جرعة Vomibreak (4/8) ⇒ كمية', parseItemLine('Vomibreak tab 5', { formNumberQty: fnq }), { name: 'Vomibreak tab', quantity: 5, bonus: null });
+  check('«Azitro tab 500»: جرعة ⇒ لا حسم', parseItemLine('Azitro tab 500', { formNumberQty: fnq }), null);
+  check('«Concor tab 5»: جرعة ⇒ لا حسم', parseItemLine('Concor tab 5', { formNumberQty: fnq }), null);
+  check('«Amoklavin tab 1»: 1 = 1G ⇒ لا حسم', parseItemLine('Amoklavin tab 1', { formNumberQty: fnq }), null);
+  check('علامة خارج الكتالوج ⇒ لا حسم', parseItemLine('Unknownix tab 5', { formNumberQty: fnq }), null);
+  check('بلا حَكَم ⇒ لا حسم (السلوك القديم)', parseItemLine('Vomibreak tab 5'), null);
+  check('«Vomibreak tab 10 ⏎ 20p»: سطر الكمية يغلب', parseItemLine(parseOrderText('Vomibreak tab 10\n20p').itemLines[0], { formNumberQty: fnq }),
+    { name: 'Vomibreak tab 10', quantity: 20, bonus: null });
+  const add = parseOrderText('اضافة\nAzitro syr 20+20\nVomibreak tab 5');
+  check('«اضافة» ليست ترويسة ولا صنفاً', [add.header.pharmacy, add.itemLines], [null, ['Azitro syr 20+20', 'Vomibreak tab 5']]);
+  check('«إضافة على الطلبية» كذلك', parseOrderText('إضافة على الطلبية\nX (1)').itemLines, ['X (1)']);
+  check('«اضافة 5 علب» سطر صنف لا كلمة إضافة', parseOrderText('اضافة 5 علب').itemLines, ['اضافة 5 علب']);
+  const { hasAdditionLine } = await import('../server/modules/orders/order-text-parse.js');
+  check('hasAdditionLine', [hasAdditionLine('اضافة\nX (1)'), hasAdditionLine('X (1)')], [true, false]);
+}
+
 console.log(failed ? `\n✗ ${failed} فشل` : '\n✓ كلها ناجحة');
 process.exit(failed ? 1 : 0);

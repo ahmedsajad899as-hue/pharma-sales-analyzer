@@ -52,7 +52,8 @@ internalRouter.post('/inbound', checkSecret, async (req, res) => {
     // كروب مندوبين صامت أولاً — لا يُعامل أبداً كردّ مذخر
     const link = m.pollVote ? null : await listenLinkFor(m.jid);
     if (link) await handleListenGroupMessage(m, link);
-    else await handleGroupInbound(m);
+    // تعديل رسالة في كروب مذخر لا يُقرأ ردّاً ثانياً («تم 12» معدّلة لا تُسجَّل مرتين)
+    else if (!m.editOf) await handleGroupInbound(m);
   } catch (e) {
     console.error('[wa-groups] فشل معالجة رسالة الكروب:', e);
   }

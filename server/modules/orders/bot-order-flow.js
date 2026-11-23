@@ -21,7 +21,8 @@
 
 import { extractInvoiceRows, resolveSharedConditionOwner } from '../sales/sales.service.js';
 import { matchInvoiceCustomers } from '../../lib/invoiceCustomerMatch.js';
-import { extractOrderRowsByMode, effectiveImageMode, imageModelMode, applyTextParse } from './order-extract.js';
+import { extractOrderRowsByMode, effectiveImageMode, imageModelMode, applyTextParse, headerFromOrderText } from './order-extract.js';
+import { hasAdditionLine } from './order-text-parse.js';
 import { aiCallScope } from '../../lib/geminiAi.js';
 import { logTextOrderRead } from '../../lib/invoiceReadLog.js';
 
@@ -30,14 +31,14 @@ import { logTextOrderRead } from '../../lib/invoiceReadLog.js';
  * المحلل أم الذكاء، كل النداءات بتوكنزها وكلفتها، والأصناف. يُعيد { rows, readBy } ويرمي
  * ما ترميه القراءة (بعد تسجيل الفشل).
  */
-async function readTextOrderLogged(text, { mode, throwOnAiFailure, ctx, allowReview = true }) {
+async function readTextOrderLogged(text, { mode, throwOnAiFailure, ctx, allowReview = true, fallbackHeader = null }) {
   const calls = [];
   const started = Date.now();
   let out = { rows: [], readBy: null };
   let error = null;
   try {
     await aiCallScope.run(calls, async () => {
-      out = await extractOrderRowsByMode(text, { mode, todayISO: new Date().toISOString().slice(0, 10), throwOnAiFailure, allowReview });
+      out = await extractOrderRowsByMode(text, { mode, todayISO: new Date().toISOString().slice(0, 10), throwOnAiFailure, allowReview, fallbackHeader });
     });
     return out;
   } catch (e) {
@@ -48,7 +49,10 @@ async function readTextOrderLogged(text, { mode, throwOnAiFailure, ctx, allowRev
   }
 }
 import { isOrderTrigger, isExplicitOrderIntent } from './order-trigger.js';
-import { ingestBotOrder, enrichRowsFromCatalog, attachScientificRepGuess, findPendingOrderForReveal } from './orders.service.js';
+import {
+  ingestBotOrder, enrichRowsFromCatalog, attachScientificRepGuess, findPendingOrderForReveal,
+  findPendingByMessage, pendingHeaderForMessage, dropSupersededPending, applyCaptionEdit,
+} from './orders.service.js';
 import { checkManualDuplicates, duplicateWarningText } from '../../lib/manualDuplicateCheck.js';
 import { hasPersonalSaleTrigger, stripPersonalSaleTrigger } from '../province-teams/personal-sale-trigger.js';
 import { ingestBotRepSales } from '../rep-sales/rep-sales.bot.js';
@@ -73,6 +77,23 @@ const repOrderIdIn = (text) => {
   const m = t.match(/#\s*(\d{1,7})(?!\d)/) || t.match(/تجهيز\s*#?\s*(\d{1,7})(?!\d)/);
   return m ? Number(m[1]) : null;
 };
+
+/**
+ * ترويسة الطلبية المقتبسة: نصّها المقتبس يُقرأ حتمياً أولاً (كلمات المندوب نفسها)، وإلا
+ * صفوف الطلبية المعلَّقة التي أنشأتها تلك الرسالة (صورة، أو نصّ قرأه الذكاء).
+ * null = الرسالة المقتبسة ليست طلبية معروفة. لا يرمي.
+ */
+async function quotedOrderHeader(chatId, quoted) {
+  if (!quoted || (!quoted.id && !quoted.text)) return null;
+  try {
+    const fromText = quoted.text ? await headerFromOrderText(quoted.text) : null;
+    if (fromText?.pharmacy) return fromText;
+    return quoted.id != null ? await pendingHeaderForMessage(chatId, quoted.id) : null;
+  } catch (e) {
+    console.error('[orders] ترويسة الرسالة المقتبسة:', e?.message);
+    return null;
+  }
+}
 
 /** يردّ بتعديل رسالة «⏳» حيث تدعم المنصة ذلك، وإلا برسالة جديدة (فايبر). */
 async function reply(transport, ctx, text) {
@@ -101,11 +122,15 @@ async function reply(transport, ctx, text) {
  * @param {string}  [p.text]         النص أو كابشن الصورة
  * @param {any[]}   [p.mediaRefs]    مراجع صور يفهمها transport.downloadMedia
  * @param {boolean} [p.isReplyToBot]
+ * @param {{id?:string|number, text?:string}} [p.quoted]  الرسالة التي ردّ عليها المرسل
+ *        (ردّ «اضافة» على طلبية سابقة ⇒ صيدليتها ومنطقتها ومذخرها)
+ * @param {string|number} [p.editOf]  الرسالة الأصلية إن كانت هذه نسخة معدّلة منها
  * @returns {Promise<boolean>} true إذا عُوملت الرسالة كطلبية (أي استُهلكت)
  */
 export async function handleIncomingOrderMessage({
   transport, link, user, chatId, chatTitle = null, messageId = null,
   senderName = null, senderId = null, text = '', mediaRefs = [], isReplyToBot = false,
+  quoted = null, editOf = null,
 }) {
   // زرّا الكروب: «تحليل النصوص» (aiMode) للنص، و«تحليل الصور» (imageMode) للصورة/PDF —
   // كلٌّ مستقل. ربط بلا العمودين (فايبر/واتساب فردي) = both، والصور تتبع aiMode القديم.
@@ -120,6 +145,19 @@ export async function handleIncomingOrderMessage({
   // «مبيعي …» نيّة صريحة تسبق مسار الطلبيات، فلا تدخل ملف الكوديشن حتى في وضع «كل الرسائل».
   if (link?.orderTextMode !== 'off' && hasPersonalSaleTrigger(text)) {
     return handleRepSaleMessage({ transport, user, chatId, senderName, senderId, text, mediaRefs, aiMode, modelMode });
+  }
+  // رسالة عُدِّلت بعد قراءتها (المندوب أضاف اسم الصيدلية لاحقاً، 2026-11-23): قراءتها
+  // المعلَّقة تُستبدل بقراءة النصّ الجديد. كابشن صورة: التعديل لا يحمل الصورة ⇒ تُطبَّق
+  // ترويسة الكابشن الجديد على الصفوف المقروءة من الصورة.
+  let superseded = [];
+  if (editOf != null) {
+    superseded = await findPendingByMessage(chatId, editOf).catch(() => []);
+    const photos = superseded.filter(p => p.kind !== 'text');
+    if (photos.length) {
+      try { await applyCaptionEdit(photos, text); }
+      catch (e) { console.error('[orders] تعديل كابشن:', e?.message); }
+      return true;
+    }
   }
   if (!isOrderTrigger(text, link?.orderTextMode, { isReplyToBot, hasMedia })) return false;
   const toCondition = userFeatureOn(user, BOT_TO_CONDITION);
@@ -147,6 +185,9 @@ export async function handleIncomingOrderMessage({
     let rows = [];
     let imageBuffers = [];
     let readBy = hasMedia ? 'ai' : null;
+    // ردّ على طلبية سابقة («اضافة ⏎ Azitro syr 20+20»، كربلاء 2026-11-23): الأصناف من
+    // الردّ، والصيدلية/المنطقة/المذخر من الرسالة المقتبسة حين لا يكتبها الردّ.
+    const fallbackHeader = await quotedOrderHeader(chatId, quoted);
 
     if (hasMedia) {
       imageBuffers = (await Promise.all(
@@ -182,9 +223,19 @@ export async function handleIncomingOrderMessage({
     } else {
       // منصّة تعيد الفاشل (onFailed) تحتاج تمييز تعطّل الذكاء عن «ليست طلبية»
       ({ rows, readBy } = await readTextOrderLogged(text, {
-        mode: aiMode, throwOnAiFailure: Boolean(transport.onFailed),
+        mode: aiMode, throwOnAiFailure: Boolean(transport.onFailed), fallbackHeader,
         ctx: { source: transport.name, userId: user.id, userName: user.displayName || user.username, senderName, chatTitle },
       }));
+    }
+    // قراءة الذكاء/الصورة لا تعرف الاقتباس: الخانات الفارغة (أو «اضافة» قُرئت صيدليةً) تُملأ منه.
+    if (fallbackHeader) {
+      for (const r of rows) {
+        const ph = String(r.pharmacy ?? '').trim();
+        if (ph && !hasAdditionLine(ph)) continue;
+        r.pharmacy = fallbackHeader.pharmacy;
+        if (!String(r.area ?? '').trim() && fallbackHeader.area) r.area = fallbackHeader.area;
+        if (!String(r.warehouse ?? '').trim() && fallbackHeader.warehouse) r.warehouse = fallbackHeader.warehouse;
+      }
     }
 
     // مطابقة الأصناف بكتالوج المستخدم وتعبئة الشركة والسعر — لكلا المسارين
@@ -263,6 +314,7 @@ export async function handleIncomingOrderMessage({
       // لم تطابق ⇒ مبيعات للكوديشن كالمعتاد
     }
 
+    const newIds = [];
     const msg = await ingestBotOrder({
       user,
       source: transport.name,
@@ -272,12 +324,18 @@ export async function handleIncomingOrderMessage({
       rows,
       imageBuffers,
       mediaKeys: mediaRefs.map(r => (typeof r === 'string' ? r : JSON.stringify(r))),
-      sourceMessageId: messageId,
+      sourceMessageId: editOf ?? messageId,
       maxPending: transport.maxPending,
       readBy,
+      idsOut: newIds,
       // طلبية مشكوك بقراءتها (كمية/صنف ناقص) لا تُرسَل للمذخر قبل أن يصحّحها المراجِع.
       ...(readBy === 'review' ? { dispatch: false } : {}),
     });
+    // القراءة الجديدة دخلت الطابور ⇒ قراءة النصّ قبل التعديل تُحذف (لا طلبيتان لرسالة واحدة).
+    if (superseded.length) {
+      const n = await dropSupersededPending(superseded, newIds).catch(e => { console.error('[orders] حذف القراءة القديمة:', e?.message); return 0; });
+      if (n) console.log(`[orders] رسالة معدّلة في ${chatTitle || chatId}: استُبدلت ${n} طلبية بالقراءة الجديدة #${newIds.join(',')}`);
+    }
     // خطّاف اختياري للمنصّة (كروبات «رقم الكروبات» تعدّ ما دخل الطابور) — لا يرمي
     try { await transport.onQueued?.(); } catch (e) { console.error('[orders] onQueued:', e?.message); }
     // تنبيه مبكر: الطلبية نفسها محفوظة سابقاً في ملف الكوديشن؟ (لا يمنع الطابور —

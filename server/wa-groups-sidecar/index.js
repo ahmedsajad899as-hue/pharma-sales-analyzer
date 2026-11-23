@@ -194,11 +194,39 @@ async function connect() {
       } catch (e) { console.error('[wa-groups] رسالة واردة:', e.message); }
     }
   });
+
+  // تعديل رسالة يصل هنا أيضاً (Baileys: key.id = الرسالة الأصلية، المحتوى في editedMessage)
+  sock.ev.on('messages.update', async (updates) => {
+    for (const { key, update } of updates || []) {
+      try {
+        const em = update?.message?.editedMessage?.message;
+        if (!em || !key?.remoteJid?.endsWith('@g.us')) continue;
+        await ensureKnownJids();
+        const inner = unwrap(em);
+        const pm = inner?.protocolMessage;
+        const ed = pm?.editedMessage
+          ? { originalId: pm.key?.id || key.id, message: unwrap(pm.editedMessage) }
+          : { originalId: key.id, message: inner };
+        await onEdit(key, null, ed);
+      } catch (e) { console.error('[wa-groups] تعديل رسالة:', e.message); }
+    }
+  });
 }
 
 function unwrap(m) {
   // رسائل «مؤقتة» و«عرض مرة» تلفّ المحتوى الحقيقي
   return m?.ephemeralMessage?.message || m?.viewOnceMessageV2?.message || m?.viewOnceMessage?.message || m;
+}
+
+/**
+ * تعديل رسالة («تعديل» في واتساب): بروتوكول MESSAGE_EDIT (النوع 14) يحمل معرّف الرسالة
+ * الأصلية والمحتوى الجديد. يصل ملفوفاً بـ editedMessage أحياناً. null = ليست تعديلاً.
+ */
+function editOf(m) {
+  const pm = m?.protocolMessage || m?.editedMessage?.message?.protocolMessage || null;
+  if (!pm?.key?.id || !pm.editedMessage) return null;
+  if (!(pm.type === 14 || pm.type === 'MESSAGE_EDIT')) return null;
+  return { originalId: pm.key.id, message: unwrap(pm.editedMessage) };
 }
 
 /** نصّ رسالة مقتبسة (نص، أو تعليق صورة/ملف) — مقصوص. */
@@ -248,6 +276,8 @@ async function onMessage(msg, type = 'notify') {
 
   const m = unwrap(msg.message);
   if (!m) return;
+  const ed = editOf(m);
+  if (ed) { await onEdit(msg.key, msg.pushName || null, ed); return; }
   // ملف مع تعليق يصل ملفوفاً بـ documentWithCaptionMessage
   const doc = m.documentMessage || m.documentWithCaptionMessage?.message?.documentMessage || null;
   const image = m.imageMessage || (doc && /^image\//.test(doc.mimetype || '') ? doc : null);
@@ -285,6 +315,39 @@ async function onMessage(msg, type = 'notify') {
   } finally {
     // لم تصل التطبيق ⇒ لا تُعلَّم معالَجة، فإعادة التسليم تبقى ممكنة
     if (!delivered && msgId) seen.delete(msgId);
+  }
+}
+
+/**
+ * رسالة عُدِّلت (المندوب كتب الطلبية ثم أضاف اسم الصيدلية بالتعديل، 2026-11-23): يُمرَّر
+ * النصّ الجديد مع editOf = الرسالة الأصلية، والتطبيق يستبدل قراءتها المعلَّقة. التعديل
+ * يصل من طريقين (upsert ببروتوكول التعديل، وmessages.update) فالبصمة (الأصل + النصّ)
+ * تمنع تمريره مرتين. الصورة لا تُعاد مع التعديل — الكابشن وحده.
+ */
+async function onEdit(key, pushName, ed) {
+  const jid = key?.remoteJid;
+  if (!jid?.endsWith('@g.us') || key.fromMe || !knownJids.has(jid)) return;
+  const m = ed.message || {};
+  const text = m.conversation || m.extendedTextMessage?.text || m.imageMessage?.caption || m.documentMessage?.caption
+    || m.documentWithCaptionMessage?.message?.documentMessage?.caption || '';
+  if (!String(text).trim()) return;
+  const seenKey = `edit_${ed.originalId}_${sha256hex(text).slice(0, 12)}`;
+  if (seen.has(seenKey)) return;
+  seen.add(seenKey);
+  // اقتباس الرسالة الأصلية (إن كانت ردّاً) يبقى سياقها بعد التعديل
+  const orig = recent.get(ed.originalId);
+  const om = orig ? unwrap(orig.message) : null;
+  const ctx = m.extendedTextMessage?.contextInfo
+    || om?.extendedTextMessage?.contextInfo || om?.imageMessage?.contextInfo || null;
+  let delivered = false;
+  try {
+    delivered = await forward({
+      jid, msgId: seenKey, editOf: ed.originalId,
+      sender: key.participantAlt || key.participant || null, senderName: pushName || orig?.pushName || null,
+      text, quotedId: ctx?.stanzaId || null, quotedText: quotedTextOf(ctx?.quotedMessage),
+    });
+  } finally {
+    if (!delivered) seen.delete(seenKey);
   }
 }
 
