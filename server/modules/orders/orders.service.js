@@ -108,6 +108,14 @@ function packCounts(s) {
   return [...normalizeItemKey(s).matchAll(PACK_COUNT_RE)].map(m => Number(m[1]));
 }
 const brandWord = (s) => (normalizeItemKey(s).match(/[a-z؀-ۿ]{3,}/) || [])[0] || '';
+// حرفان متجاوران مقلوبان فقط («osteron» = «osetron»، ذي قار 2026-11-23). ليفنشتاين يعدّها
+// تعديلين (0.71 < 0.75) وهي خطأ كتابة واحد. ≥5 أحرف كي لا تتساوى علامات قصيرة.
+function oneSwap(a, b) {
+  if (a.length !== b.length || a.length < 5 || a === b) return false;
+  const d = [];
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) d.push(i);
+  return d.length === 2 && d[1] === d[0] + 1 && a[d[0]] === b[d[1]] && a[d[1]] === b[d[0]];
+}
 
 // جرعة مركّبة: فاتورة المذخر تكتب المكوّنين «Amoklavin-BID 400/57mg» والكتالوج
 // مجموعهما «AMOKLAVIN BID 457MG SYRUP» (أموكسيسيلين 400 + كلافولانات 57) — أو
@@ -154,7 +162,7 @@ export function brandDoseFallback(name, catalog) {
   const brand = brandWord(name);
   let family = brand.length < 4 ? [] : catalog.filter(c => {
     const b = brandWord(c.name);
-    return b === brand || (b.length >= 4 && similarity(b, brand) >= 0.75);
+    return b === brand || (b.length >= 4 && similarity(b, brand) >= 0.75) || oneSwap(b, brand);
   });
   // اسم عربي والكتالوج لاتيني («ديتركس iv» ← DAYTRIX، كروب ميسان 2026-11-21): هيكل
   // الحروف الساكنة. يُربط فقط إن طابق علامةً لاتينية **واحدة** تماماً — علامتان بنفس

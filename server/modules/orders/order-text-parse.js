@@ -321,7 +321,8 @@ export function parseOrderText(text, { isKnownWarehouse: isKnownInDb = () => fal
 // ─── أسطر الأصناف ───────────────────────────────────────────────────────────
 // «ق» = قطعة («Nasomista 20 ق»، كروب الديوانية 2026-11-17).
 // «عدد 10» سطراً وحده تحت الصنف (كروب Basra nasq، 2026-11-18).
-const COUNT_UNIT = String.raw`(?:p|pc|pcs|pack|box|عدد|ع|علب[ةه]?|علب|حب[ةه]|شريط|قطع[ةه]?|ق)`;
+// «باكيت» = علبة («Osteron 8mg / 4ml / 5 باكيت»، ذي قار 2026-11-23).
+const COUNT_UNIT = String.raw`(?:p|pc|pcs|pk|pkt|pack|packs|box|boxes|عدد|ع|علب[ةه]?|علب|حب[ةه]|شريط|قطع[ةه]?|باكيت(?:ات)?|باكت|بكت|ق)`;
 // سطر كمية وحده: «10 قطعة»، «(10)»، «10+2 علبة»، «10».
 // والوحدة قبل الرقم «ع 10» (#228).
 const QTY_ONLY_RE = new RegExp(String.raw`^\(?\s*(?:${COUNT_UNIT}\s*)?(\d+)\s*(?:\+\s*(\d+)\s*)?${COUNT_UNIT}?\s*\)?$`, 'i');

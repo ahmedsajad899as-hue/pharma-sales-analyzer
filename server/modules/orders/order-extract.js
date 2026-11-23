@@ -416,7 +416,7 @@ export async function extractOrderRowsByMode(text, { mode = 'both', todayISO, th
 //     وسطر «اضافة» (ردّ على طلبية سابقة) لا يُعدّ ترويسة.
 // 16 (2026-11-23): «5 ديفيت 50,000» رقم بلا وحدة قبل اسم عربي = كمية (ميسان)، وهيكل 3 حروف
 //     (DFT = DEVIT) يُربط إن كُتبت جرعة تحسم صنفاً واحداً.
-export const TEXT_PARSE_VERSION = 16;
+export const TEXT_PARSE_VERSION = 17;
 
 /**
  * القراءة الحتمية للنصّ تغلب اجتهاد الموديل حيث يحسم الشكل: ترويسة متعدّدة الأسطر

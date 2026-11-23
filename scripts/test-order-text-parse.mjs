@@ -471,5 +471,18 @@ check('منطقة الموديل غير المذكورة في سطر المذخ�
   check('«ديفيت 50000» وعلامتان بنفس الهيكل ⇒ لا ربط', linkD('ديفيت 50000', [...catD, { id: 7, name: 'DAFIT 50000' }]), null);
 }
 
+// ─── 2026-11-23: ذي قار «Osteron 8mg / 4ml / 5 باكيت» — وحدة «باكيت» + حرفان مقلوبان ──
+{
+  const h = parseOrderText('Osteron 8mg / 4ml / 5 باكيت\nصيدلية سعدون رياض\nمذخر الفرات\nتم التجهيز');
+  check('ذي قار «Osteron 8mg / 4ml / 5 باكيت»', [h.header.pharmacy, h.header.warehouse, h.itemLines.map(l => parseItemLine(l))],
+    ['سعدون رياض', 'الفرات', [{ name: 'Osteron 8mg / 4ml', quantity: 5, bonus: null }]]);
+  check('«Amoklavin 625 10 باكيتات»', parseItemLine('Amoklavin 625 10 باكيتات'), { name: 'Amoklavin 625', quantity: 10, bonus: null });
+  const catO = [{ id: 1, name: 'Osetron 8mg 4ml 5 amp' }, { id: 2, name: 'Osetron 4mg 2ml 5 amp' }, { id: 3, name: 'Panadol extra' }];
+  const linkO = (n, c = catO) => { const r = brandDoseFallback(n, c); return r?.confidence === 'high' ? r.canonicalItem.id : null; };
+  check('«Osteron 8mg / 4ml» (حرفان مقلوبان) ← Osetron 8mg', linkO('Osteron 8mg / 4ml'), 1);
+  check('«Osteron» بلا جرعة ⇒ لا ربط (حجمان)', linkO('Osteron'), null);
+  check('قلب حرفين في علامة قصيرة (<5) لا يُقبل', linkO('Aimx 10', [{ id: 9, name: 'Amix 10mg' }]), null);
+}
+
 console.log(failed ? `\n✗ ${failed} فشل` : '\n✓ كلها ناجحة');
 process.exit(failed ? 1 : 0);
