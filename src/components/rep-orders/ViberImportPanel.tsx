@@ -342,7 +342,7 @@ function WarehouseSearch({ warehouses, placeholder, onPick }: { warehouses: Wh[]
   );
 }
 
-export default function ViberImportPanel({ api, token, warehouses, reps, canSend, initialText, initialImages, allowImages = true, modes: modesProp, onClose, onChanged, onFinished, botOrders, onBotSaved, onLegacy }: {
+export default function ViberImportPanel({ api, token, warehouses, reps, canSend, initialText, initialImages, allowImages = true, modes: modesProp, onClose, onChanged, onFinished, botOrders, onBotSaved, onBotCancel, onLegacy }: {
   /** الوجهات المسموحة من «المميزات» (rep_orders_viber_liq / _wh) — واحدة فقط ⇒ كل الطلبيات لها بلا اختيار */
   modes?: readonly Mode[];
   /** مراجعة طلبيات البوت (صفحة رفع الملفات): نفس البطاقات، تُحفظ في اللكوديشن فقط */
@@ -351,6 +351,8 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
   onBotSaved?: (orderIds: number[], fileId: number | undefined, summary: string, done: boolean) => void;
   /** فتح نفس الطلبيات بجدول المراجعة القديم (للفواتير المعقّدة) */
   onLegacy?: () => void;
+  /** حذف طلبيات بوت من الطابور نهائياً (زر 🗑 على آخر بطاقة للطلبية) — يرمي خطأً إن رُفض */
+  onBotCancel?: (orderIds: number[]) => Promise<void>;
   api: <T = any>(path: string, init?: RequestInit) => Promise<T>;
   token: string | null;
   warehouses: Wh[];
@@ -963,6 +965,26 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
     }
   };
 
+  /**
+   * 🗑 على بطاقة: لصقة الفايبر تُزال من الشاشة فقط. طلبية البوت كانت تُزال من الشاشة
+   * فقط أيضاً فتبقى في الطابور، وآخر بطاقة تترك اللوحة على «تجهيز الطلبيات…» للأبد
+   * (2026-11-24). الآن: آخر بطاقة للطلبية ⇒ تُحذف الطلبية من الطابور، وآخر بطاقة في
+   * اللوحة ⇒ تُغلق اللوحة.
+   */
+  const removeDraft = async (d: Draft) => {
+    const lastOfOrder = d.bot && !drafts.some(x => x.key !== d.key && x.bot?.orderId === d.bot!.orderId);
+    if (lastOfOrder && onBotCancel) {
+      if (!window.confirm('حذف هذه الطلبية نهائياً من طلبيات البوت؟ لن تُحفظ في اللكوديشن.')) return;
+      setBusy(true);
+      try { await onBotCancel([d.bot!.orderId]); }
+      catch (e: any) { patch(d.key, { state: 'error', result: e?.message || 'تعذّر حذف الطلبية' }); return; }
+      finally { setBusy(false); }
+    }
+    const rest = drafts.filter(x => x.key !== d.key);
+    setDrafts(rest);
+    if (isBot && !rest.length) onClose();
+  };
+
   const pending = drafts.filter(d => d.include && d.state !== 'done' && d.state !== 'warn');
   const finished = drafts.filter(d => d.state === 'done' || d.state === 'warn');
   const compactDrop = IS_TOUCH || drafts.length > 0;
@@ -1049,7 +1071,7 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
                     <span className="vi-badge vi-badge--dup" title={d.liqDup.text}>⚠️ {d.liqDup.level === 'possible' ? 'ربما مكررة' : 'مكررة'} باللكوديشن</span>
                   )}
                   <span className="ro-spacer" />
-                  {!locked && <button className="vi-x" title="حذف" onClick={() => setDrafts(ds => ds.filter(x => x.key !== d.key))}><Trash2 size={14} /></button>}
+                  {!locked && <button className="vi-x" title={d.bot ? 'حذف الطلبية من الطابور' : 'حذف'} disabled={busy} onClick={() => removeDraft(d)}><Trash2 size={14} /></button>}
                 </div>
 
                 <div className="vi-card__body">

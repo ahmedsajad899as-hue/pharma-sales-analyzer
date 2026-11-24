@@ -1371,6 +1371,18 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
           botOrders={orderDetails}
           onLegacy={() => { setBotPanel(false); setShowManualModal(true); }}
           onClose={() => { setBotPanel(false); setOrderDetails([]); }}
+          onBotCancel={async ids => {
+            for (const id of ids) {
+              const res = await fetch(`${API}/api/orders/pending/${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
+              // 404 = حُفظت أو حُذفت من مكان آخر — النتيجة نفسها
+              if (!res.ok && res.status !== 404) {
+                const j = await res.json().catch(() => ({}));
+                throw new Error(j.error || j.message || 'تعذّر حذف الطلبية');
+              }
+            }
+            const gone = new Set(ids);
+            setPendingOrders(prev => prev.filter(o => !gone.has(o.id)));
+          }}
           onChanged={() => {}}
           onBotSaved={async (ids, fileId, summary, done) => {
             const saved = new Set(ids);
