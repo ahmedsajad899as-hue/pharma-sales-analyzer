@@ -34,12 +34,19 @@ export interface BotOrder {
   id: number; source: string; kind: string; rows: any[];
   repName?: string | null; sourceText?: string | null; senderName?: string | null;
   imageCount?: number; createdAt?: string;
+  /** اسم كروب الواتساب/التلكرام الذي وصلت منه */
+  chatTitle?: string | null;
 }
+/** خيار في خانة المندوب لطلبية البوت: مندوبو المحافظة مع شركة كل واحد؛ star = مرشّح (صاحب الصنف × المنطقة). */
+interface RepOpt { id: number; name: string; company?: string | null; star?: boolean }
+interface ServerRepOpt { name: string; company?: string | null; star?: boolean }
 interface Draft {
   // المذاخر كما كُتبت في الرسالة، والمذخر المحفوظ في اللكوديشن (نص حرّ لا اختيار من الدليل)
   writtenWarehouses?: string[]; whText?: string;
   // طلبية بوت: رقمها ومصدرها وحساب الكروب، وتاريخ الفاتورة ورقمها من صفوفها
-  bot?: { orderId: number; source: string; repAccount: string | null; createdAt?: string };
+  bot?: { orderId: number; source: string; repAccount: string | null; createdAt?: string; chat?: string | null };
+  // طلبية البوت: مندوبو محافظة الطلبية فقط (null = المحافظة غير معروفة ⇒ الفريق كله)
+  repOptions?: RepOpt[] | null;
   date?: string; invoiceNumber?: string;
   // تكرار مع ملف اللكوديشن/ميركاتو (فُحص عند ظهور البطاقة): مستواه ووصف المحفوظ سابقاً
   dupChecked?: boolean; liqDup?: { level: string; text: string } | null;
@@ -107,11 +114,30 @@ function botDrafts(o: BotOrder): Draft[] {
       repUserId: null, repName: String(first.scientificRep ?? '') || null, repWhy: null, repNote: null,
       repCandidates: [], sourceHash: null, duplicateOf: null, dupInBatch: false, warnings: [], include: true,
       date: first.date ? String(first.date) : undefined, invoiceNumber: first.invoiceNumber ? String(first.invoiceNumber) : undefined,
-      bot: { orderId: o.id, source: o.source, repAccount: o.repName ?? null, createdAt: o.createdAt },
-      // مرشّحو الخادم للبطاقة (أسماء) — تُطابَق بأعضاء الفريق بعد تحميله
-      ...({ _cands: (first._repCandidates || []).map((c: any) => c?.name).filter(Boolean), _repPick: first._repPick ?? null, _repNote: first._repNote ?? null } as any),
+      bot: { orderId: o.id, source: o.source, repAccount: o.repName ?? null, createdAt: o.createdAt, chat: o.chatTitle ?? null },
+      // مرشّحو الخادم للبطاقة (أسماء) — تُطابَق بأعضاء الفريق بعد تحميله. قائمة المحافظة:
+      // مرشّحو كل أصناف البطاقة أولاً، ثم بقية مندوبي المحافظة.
+      ...({
+        _cands: (first._repCandidates || []).map((c: any) => c?.name).filter(Boolean), _repPick: first._repPick ?? null, _repNote: first._repNote ?? null,
+        _opts: rs.some(r => Array.isArray(r._repOptions))
+          ? [...rs.flatMap(r => (r._repOptions || []).filter((x: any) => x?.star)), ...rs.flatMap(r => r._repOptions || [])] as ServerRepOpt[]
+          : null,
+      } as any),
     } as Draft;
   });
+}
+
+/** قائمة الخادم (أسماء) ← خيارات بمعرّفات الفريق، بلا تكرار؛ المرشّح في أي صنف يبقى ★. */
+function toRepOpts(list: ServerRepOpt[], byName: (name: string) => Rep): RepOpt[] {
+  const out: RepOpt[] = [];
+  for (const o of list) {
+    if (!o?.name) continue;
+    const r = byName(o.name);
+    const hit = out.find(x => x.id === r.id);
+    if (hit) { hit.star = hit.star || Boolean(o.star); hit.company = hit.company || o.company || null; continue; }
+    out.push({ id: r.id, name: r.name, company: o.company || null, star: Boolean(o.star) });
+  }
+  return out;
 }
 
 const REP_WHY: Record<string, string> = { bot: 'من الطلبية', botLeader: 'تيم ليدر — لم يُحسم مندوب علمي للصنف', leader: 'تيم ليدر المنطقة (لا مندوب علمي لها)', area: 'صاحب المنطقة', sender: 'من اسم المرسل', learned: 'اخترته سابقاً لنفس المرسل', guess: 'صاحب المنطقة' };
@@ -378,7 +404,8 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
         const picked = d.repName ? optOf(d.repName) : null;
         // التيم ليدر احتياطاً (لا مندوب واحد معيَّن له الصنف) ⇒ يُقال ذلك وسببه بدل «من الطلبية».
         const leaderPick = (d as any)._repPick === 'leader';
-        return { ...d, repCandidates: cands, repUserId: picked?.id ?? null, repName: picked?.name ?? null,
+        const opts = (d as any)._opts as ServerRepOpt[] | null;
+        return { ...d, repCandidates: cands, repOptions: opts ? toRepOpts(opts, optOf) : null, repUserId: picked?.id ?? null, repName: picked?.name ?? null,
           repWhy: picked ? (leaderPick ? 'botLeader' as const : 'bot' as const) : null, repNote: leaderPick ? ((d as any)._repNote ?? null) : d.repNote };
       });
       if (extra.length) setTeam(prev => [...prev, ...extra.filter(x => !prev.some(p => p.id === x.id))]);
@@ -442,6 +469,53 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
 
   const resolveRepRef = useRef(resolveRep);
   resolveRepRef.current = resolveRep;
+
+  // اسم من الخادم ← عضو الفريق (نفس مطابقة فتح طلبيات البوت)؛ اسم خارج الفريق يصير خياراً باسمه
+  const teamRef = useRef<Rep[]>([]);
+  teamRef.current = team;
+  const extraSeq = useRef(0);
+  const repFromName = (name: string): Rep => {
+    const list = teamRef.current;
+    const hit = list.find(u => repKey(u.name) === repKey(name))
+      ?? list.find(u => repKey(u.name).startsWith(repKey(name)) || repKey(name).startsWith(repKey(u.name)));
+    if (hit) return hit;
+    const made = { id: -(100000 + ++extraSeq.current), name: name.split('/')[0].trim() };
+    teamRef.current = [...list, made];
+    setTeam(prev => (prev.some(p => repKey(p.name) === repKey(made.name)) ? prev : [...prev, made]));
+    return made;
+  };
+
+  /**
+   * طلبية بوت: المنطقة تغيّرت ⇒ تخمين الخادم نفسه (/api/orders/refresh-row) — المندوب
+   * وقائمة مندوبي المحافظة الجديدة بشركاتهم. تعذّر ⇒ قاعدة المنطقة العامة.
+   */
+  const refreshBotRep = async (key: string, area: string) => {
+    const d = draftsRef.current.find(x => x.key === key);
+    if (!d || !token) return;
+    const line = d.lines.find(l => l.itemId) ?? d.lines[0];
+    try {
+      const res = await fetch(`${API}/api/orders/refresh-row`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ changed: 'area', row: {
+          item: line?.itemName ?? '', company: line?.companyName ?? null, quantity: line?.quantity ?? null,
+          pharmacy: d.pharmacyName, area, invoiceNumber: d.invoiceNumber ?? null,
+        } }),
+      });
+      const j = await res.json().catch(() => null);
+      if (!res.ok || !j?.success) throw new Error('refresh');
+      const r = j.data as { scientificRep: string | null; repCandidates: { name: string }[]; repOptions: ServerRepOpt[] | null; repPick: string | null; repNote: string | null };
+      const opts = r.repOptions ? toRepOpts(r.repOptions, repFromName) : null;
+      const cands = (r.repCandidates ?? []).map(c => repFromName(c.name));
+      const picked = r.scientificRep ? repFromName(r.scientificRep) : null;
+      const leader = r.repPick === 'leader';
+      setDrafts(ds => ds.map(x => (x.key !== key ? x : {
+        ...x, areaName: area, repOptions: opts, repCandidates: cands,
+        ...(picked ? { repUserId: picked.id, repName: picked.name, repWhy: leader ? 'botLeader' as const : 'area' as const, repNote: leader ? r.repNote : null }
+          : x.repWhy ? { repUserId: null, repName: null, repWhy: null, repNote: r.repNote } : {}),
+      })));
+    } catch { resolveRep(key, area); }
+  };
 
   // المندوبون = علميّو فريق صاحب الحساب كما أعادهم الخادم (بلا مسوقين)؛ قائمة الصفحة احتياط فقط
   const repOptions = team.length ? team : reps;
@@ -867,6 +941,16 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
             const extraWh = warehouses.filter(w => !d.mentionedWarehouses.some(m => m.id === w.id));
             const candIds = new Set(d.repCandidates.map(c => c.id));
             const repList = [...repOptions.filter(r => candIds.has(r.id)), ...repOptions.filter(r => !candIds.has(r.id))];
+            // طلبية البوت: مندوبو محافظتها فقط (★ صاحب الصنف والمنطقة أولاً) مع الشركة؛ المختار
+            // من خارجها (اسم المرسل/اختيار سابق) يبقى ظاهراً كي لا يُمسح
+            const provOpts: RepOpt[] | null = d.bot && d.repOptions?.length
+              ? [
+                  ...(d.repUserId != null && !d.repOptions.some(o => o.id === d.repUserId)
+                    ? [{ id: d.repUserId, name: d.repName || repOptions.find(r => r.id === d.repUserId)?.name || '—', company: null, star: false }]
+                    : []),
+                  ...[...d.repOptions.filter(o => o.star || candIds.has(o.id)), ...d.repOptions.filter(o => !(o.star || candIds.has(o.id)))],
+                ]
+              : null;
             // زر النوع: لصق/كتابة فقط (لا مراجعة البوت) وحين يكون للفريق مسوقون
             const kindOn = !d.bot && marketers.length > 0;
             const kind: RepKind = kindOn ? repKind : 'auto';
@@ -894,6 +978,7 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
                   {!d.manual && <div className={`vi-src ${openSrc.has(d.key) ? 'is-open' : ''}`}
                     onClick={() => setOpenSrc(s => { const n = new Set(s); if (n.has(d.key)) n.delete(d.key); else n.add(d.key); return n; })}>
                     <div className="vi-src__head"><MessageSquareText size={12} /> الرسالة{d.sender ? ` — ${d.sender}` : ''}
+                      {d.bot?.chat && <span className="vi-src__chat" title={`الكروب: ${d.bot.chat}`}>{d.bot.chat}</span>}
                       <span className="vi-src__more">{openSrc.has(d.key) ? 'طيّ' : 'عرض كاملة'}</span>
                     </div>
                     {d.bot && (botImages[d.bot.orderId]?.length ?? 0) > 0 && (
@@ -913,7 +998,7 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
                       </label>
                       <label className="vi-f"><span>المنطقة</span>
                         <AreaSearch areas={areaOpts} value={d.areaName} disabled={locked}
-                          onText={v => patch(d.key, { areaName: v })} onCommit={a => resolveRep(d.key, a)} />
+                          onText={v => patch(d.key, { areaName: v })} onCommit={a => (d.bot ? refreshBotRep(d.key, a) : resolveRep(d.key, a))} />
                       </label>
                       {/* div لا label: الضغط على عنوان الحقل كان سيضغط زر النوع */}
                       <div className="vi-f"><span className="vi-f__h">{kindOn ? (kind === 'mkt' ? 'المسوق' : 'المندوب') : 'المندوب العلمي'}
@@ -927,7 +1012,10 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
                         <select className="form-input" value={d.repUserId ?? ''} disabled={locked}
                           onChange={e => patch(d.key, { repUserId: e.target.value ? Number(e.target.value) : null, repWhy: null })}>
                           <option value="">{kind === 'mkt' ? '— اختر المسوق —' : '— المندوب العلمي —'}</option>
-                          {kind !== 'mkt' && repList.map(r => <option key={r.id} value={r.id}>{candIds.has(r.id) ? '★ ' : ''}{r.name}</option>)}
+                          {kind !== 'mkt' && provOpts && provOpts.map(r => (
+                            <option key={r.id} value={r.id}>{r.star || candIds.has(r.id) ? '★ ' : ''}{r.name}{r.company ? ` — ${r.company}` : ''}</option>
+                          ))}
+                          {kind !== 'mkt' && !provOpts && repList.map(r => <option key={r.id} value={r.id}>{candIds.has(r.id) ? '★ ' : ''}{r.name}</option>)}
                           {kind === 'mkt' && [...marketers.filter(r => candIds.has(r.id)), ...marketers.filter(r => !candIds.has(r.id))]
                             .map(r => <option key={r.id} value={r.id}>{candIds.has(r.id) ? '★ ' : ''}{r.name}</option>)}
                           {kind === 'auto' && kindOn && (

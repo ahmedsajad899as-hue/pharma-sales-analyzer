@@ -64,6 +64,9 @@
 .vi-chip { border: 1px solid var(--c-border); background: var(--c-surface); color: var(--c-text-primary); border-radius: 999px; padding: 2px 10px; font: inherit; font-size: 12px; cursor: pointer; }
 .vi-chip.is-on { border-color: var(--c-accent); background: var(--c-accent-light); color: var(--c-accent); font-weight: 700; }
 .vi-src__more { display: none; margin-inline-start: auto; font-weight: 600; color: var(--c-accent); }
+/* اسم كروب الواتساب على اليسار (نهاية السطر في RTL) */
+.vi-src__chat { margin-inline-start: auto; min-width: 0; max-width: 55%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; color: #128c4a; direction: auto; unicode-bidi: plaintext; }
+.vi-src__chat + .vi-src__more { margin-inline-start: 6px; }
 .vi-src pre { margin: 0; font-family: inherit; font-size: 12px; line-height: 1.55; white-space: pre-wrap; word-break: break-word; color: var(--c-text-primary); }
 .vi-form { order: 1; display: flex; flex-direction: column; gap: 14px; min-width: 0; }
 

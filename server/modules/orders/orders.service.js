@@ -381,7 +381,7 @@ export async function attachScientificRepGuess(rows, actingUser) {
           id: true, username: true, displayName: true, linkedRepId: true,
           linkedRep:          { select: { repKind: true } },
           areaAssignments:    { select: { areaId: true } },
-          companyAssignments: { select: { companyId: true } },
+          companyAssignments: { select: { companyId: true, company: { select: { name: true } } } },
           itemAssignments:    { select: { itemId: true } },
         },
       }),
@@ -864,6 +864,41 @@ export async function attachScientificRepGuess(rows, actingUser) {
       } catch (e) { console.error('[orders] rep/leader fallback failed:', e?.message); }
     }
 
+    // ── قائمة خانة المندوب في المراجعة: مندوبو محافظة الطلبية فقط (طلب صاحب المشروع
+    // 2026-11-24) — المرشّحون (صاحب الصنف × المنطقة) أولاً، ثم مندوبو المنطقة، ثم بقية
+    // المحافظة؛ ومع كل اسم شركته. بلا محافظة معروفة ⇒ لا قائمة (الواجهة تعرض الفريق كله).
+    const companyNameById = new Map(sciCompanies.map(c => [c.id, c.name]));
+    for (const r of repUsers) for (const a of r.companyAssignments) if (a.company?.name && !companyNameById.has(a.companyId)) companyNameById.set(a.companyId, a.company.name);
+    const provinceIdOfArea = new Map(areas.map(a => [a.id, provinceOfAreaRow(a)]));
+    const repCompanies = (c, sciId) => {
+      const ids = [...new Set([...c.ownedCompanies, ...c.companies])];
+      if (sciId != null && ids.includes(sciId)) ids.unshift(...ids.splice(ids.indexOf(sciId), 1));
+      return ids.map(id => companyNameById.get(id)).filter(Boolean).slice(0, 2).join('، ') || null;
+    };
+    for (const [row, ctx] of ctxByRow) {
+      delete row._repOptions; // قائمة مخزَّنة من قراءة سابقة تُعاد من التعيينات الحالية
+      const provIds = new Set(ctx.provinceId != null ? [ctx.provinceId]
+        : [...ctx.areaIds].map(id => provinceIdOfArea.get(id)).filter(id => id != null));
+      const provAreaIds = new Set([...provIds].flatMap(pid => areaIdsByProvince.get(pid) || []));
+      const inProvince = provIds.size
+        ? index.filter(c => [...provIds].some(pid => c.provinces.has(pid)) || [...c.areas].some(id => provAreaIds.has(id)))
+        : (ctx.areaIds.size ? (ctx.areaPool || []) : []);
+      if (!inProvince.length && !ctx.candidates.length) continue;
+      const seen = new Set();
+      const ordered = [];
+      const push = (c, star) => {
+        const k = repCoreKey(c.name);
+        if (!k || seen.has(k)) return;
+        seen.add(k);
+        const full = index.find(x => x === c) || index.find(x => repCoreKey(x.name) === k);
+        ordered.push({ id: c.id, name: c.name, company: full ? repCompanies(full, ctx.sciId) : null, star });
+      };
+      ctx.candidates.forEach(c => push(c, true));
+      (ctx.areaPool || []).filter(c => inProvince.includes(c)).forEach(c => push(c, false));
+      [...inProvince].sort((a, b) => a.name.localeCompare(b.name, 'ar')).forEach(c => push(c, false));
+      row._repOptions = ordered.slice(0, 60);
+    }
+
     for (const [row, ctx] of ctxByRow) {
       const { candidates } = ctx;
       row._repCandidates = candidates.slice(0, 8).map(c => ({ id: c.id, name: c.name }));
@@ -989,7 +1024,9 @@ export async function refreshReviewRow(userId, { row, changed }) {
     unitPrice: r.unitPrice ?? null,
     scientificRep: r.scientificRep || null,
     repCandidates: Array.isArray(r._repCandidates) ? r._repCandidates : [],
+    repOptions: Array.isArray(r._repOptions) ? r._repOptions : null,
     repPick: r._repPick || null,
+    repNote: r._repNote || null,
   };
 }
 
