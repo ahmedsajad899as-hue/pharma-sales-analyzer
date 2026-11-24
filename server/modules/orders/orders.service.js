@@ -19,6 +19,7 @@ import { loadResolutionContext, loadCompanyContext, resolveItemName, resolveItem
 import { cleanPharmacyName } from '../../lib/surveyPharmacies.js';
 import { matchInvoiceCustomers } from '../../lib/invoiceCustomerMatch.js';
 import { REP_ROLES } from '../../lib/areaScope.js';
+import { isPharmacyRep } from '../../lib/pharmacyRep.js';
 import { isManagementRepRecord, candidateOwnsItem, candidateHoldsItem, provinceIdByNameKey, rowCoverage, candidateCoversRow, pickRepOrLeader, areaProvinceResolver } from '../../lib/repGuessRules.js';
 import { similarity, routesOf, hasDifferentRoutes, truncatedDose } from '../../lib/fuzzyMatch.js';
 import { arabicBrandWord, crossScriptFamily } from '../../lib/drugSkeleton.js';
@@ -373,11 +374,12 @@ export async function attachScientificRepGuess(rows, actingUser) {
 
   try {
     const officeWhere = actingUser.officeId ? { officeId: actingUser.officeId } : { id: actingUser.id };
-    const [reps, areas, aliases, repRecords, provinceAssignments, sciCompanies, nonRepUsers, provinces, userProvinces] = await Promise.all([
+    const [repUsers, areas, aliases, repRecords, provinceAssignments, sciCompanies, nonRepUsers, provinces, userProvinces] = await Promise.all([
       prisma.user.findMany({
         where: { role: 'scientific_rep', isActive: true, ...officeWhere },
         select: {
           id: true, username: true, displayName: true, linkedRepId: true,
+          linkedRep:          { select: { repKind: true } },
           areaAssignments:    { select: { areaId: true } },
           companyAssignments: { select: { companyId: true } },
           itemAssignments:    { select: { itemId: true } },
@@ -394,7 +396,7 @@ export async function attachScientificRepGuess(rows, actingUser) {
       prisma.scientificRepresentative.findMany({
         where: { isActive: true, user: officeWhere },
         select: {
-          id: true, name: true,
+          id: true, name: true, repKind: true,
           areas:       { select: { areaId: true } },
           items:       { select: { itemId: true } },
           companies:   { select: { company: { select: { name: true } } } },
@@ -424,7 +426,14 @@ export async function attachScientificRepGuess(rows, actingUser) {
         select: { userId: true, provinceId: true },
       }),
     ]);
-    if (!reps.length && !repRecords.length) return rows;
+    // المسوقون (فارمسي لاين / مسوقو المحافظات، repKind='pharmacy') حساباتهم scientific_rep
+    // لكنهم ليسوا مندوبين علميين (قاعدة ثابتة: لا ربط بينهما). مسوق المحافظة يُنسَخ له كل
+    // ايتمات مديره ويُسنَد للمحافظة، فكان «يحمل» كل صنف فيها: كربلاء 2026-11-24 «Msfungin
+    // Vial» معيَّن لياسر سالم وحده بين العلميين، لكن المسوقَين محمد سامي وحسن هاشم حملاه
+    // أيضاً فتعادل الثلاثة وذهبت الخانة للتيم ليدر حيدر علي.
+    const reps = repUsers.filter(r => !isPharmacyRep(r.linkedRep));
+    const sciRecords = repRecords.filter(rec => !isPharmacyRep(rec));
+    if (!reps.length && !sciRecords.length) return rows;
 
     // مندوب يشارك مديراً نفس الاسم يبقى مندوباً.
     const repNameKeys = new Set(reps.map(r => repCoreKey(r.displayName?.trim() || r.username)));
@@ -432,6 +441,11 @@ export async function attachScientificRepGuess(rows, actingUser) {
       nonRepUsers.flatMap(u => [u.displayName, u.username])
         .filter(Boolean).map(repCoreKey).filter(k => k && !repNameKeys.has(k)),
     );
+    // مسوق خمّنه تخمين سابق (قبل الإصلاح) يُمسح من الطلبية المعلَّقة عند فتحها.
+    const marketerNameKeys = new Set([
+      ...repUsers.filter(r => isPharmacyRep(r.linkedRep)).map(r => r.displayName?.trim() || r.username),
+      ...repRecords.filter(rec => isPharmacyRep(rec)).map(rec => rec.name),
+    ].filter(Boolean).map(repCoreKey).filter(k => k && !repNameKeys.has(k)));
 
     // اسم المنطقة قد يتكرّر كصفوف Area متعدّدة (المنطقة لكل حساب لا عالمية —
     // راجع ذاكرة project_pharma_area_account_scoping)، فنجمع كل المعرّفات.
@@ -480,7 +494,7 @@ export async function attachScientificRepGuess(rows, actingUser) {
     const byUserId = new Map(index.map(c => [c.id, c]));
     const byLinkedRep = new Map(reps.filter(r => r.linkedRepId).map(r => [r.linkedRepId, byUserId.get(r.id)]));
     const byName = new Map(index.map(c => [repCoreKey(c.name), c]));
-    for (const rec of repRecords) {
+    for (const rec of sciRecords) {
       let target = byLinkedRep.get(rec.id)
         ?? rec.linkedUsers.map(u => byUserId.get(u.id)).find(Boolean);
       if (!target && isManagementRepRecord(rec.linkedUsers.map(u => u.role), repCoreKey(rec.name), nonRepNameKeys)) continue;
@@ -633,6 +647,7 @@ export async function attachScientificRepGuess(rows, actingUser) {
         const storedKey = repCoreKey(row.scientificRep);
         const stored = index.find(c => repCoreKey(c.name) === storedKey);
         if (nonRepNameKeys.has(storedKey)
+          || (row._repSource !== 'sender' && !stored && marketerNameKeys.has(storedKey))
           || (row._repSource !== 'sender' && stored && (!candidateOwnsItem(stored, ownership) || (holders.length && !holders.includes(stored))))) {
           row.scientificRep = null;
         }
@@ -781,7 +796,7 @@ export async function attachScientificRepGuess(rows, actingUser) {
       && (ctx.candidates.length > 1 || ctx.areaIds.size > 0 || ctx.provinceId != null));
     if (undecided.length) {
       try {
-        const [teams, tlUsers] = await Promise.all([
+        const [teams, tlAll] = await Promise.all([
           actingUser.officeId
             ? prisma.provinceTeam.findMany({
                 where: { officeId: actingUser.officeId, isActive: true, leaderUserId: { not: null }, leader: { isActive: true } },
@@ -792,11 +807,15 @@ export async function attachScientificRepGuess(rows, actingUser) {
             where: { role: 'team_leader', isActive: true, ...officeWhere },
             select: {
               id: true, username: true, displayName: true,
+              linkedRep: { select: { repKind: true } },
               areaAssignments: { select: { areaId: true } },
               subordinatesOfUser: { select: { userId: true } },
             },
           }),
         ]);
+        // قائد فريق المسوقين (فارمسي) ليس قائد مندوبين علميين؛ مناطقه قسم كامل (الكرخ/الرصافة)
+        // فكان قد يُختار «القائد الوحيد المعيَّنة له المنطقة».
+        const tlUsers = tlAll.filter(u => !isPharmacyRep(u.linkedRep));
         const asCand = (u) => ({ id: u.id, name: u.displayName?.trim() || u.username });
         const leaderIds = new Set([...teams.map(t => t.leader.id), ...tlUsers.map(u => u.id)]);
         const leaderKeys = new Set([...teams.map(t => asCand(t.leader).name), ...tlUsers.map(u => asCand(u).name)].map(repCoreKey).filter(Boolean));
