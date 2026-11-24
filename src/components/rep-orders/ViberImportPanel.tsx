@@ -355,8 +355,6 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
   // (وإن أُطفئت خانة اللكوديشن من «المميزات» فالمذاخر). مراجعة البوت لكوديشن دائماً.
   const modes: readonly Mode[] = botOrders?.length || !modesProp?.length ? ['liq', 'wh'] : modesProp;
   const [mode, setMode] = useState<Mode>(modes.includes('liq') ? 'liq' : 'wh');
-  // الموبايل: نص الرسالة مطويّ لسطرين حتى يُضغط (كي تظهر البطاقة كلها بشاشة واحدة)
-  const [openSrc, setOpenSrc] = useState<Set<string>>(new Set());
   const fileRef = useRef<HTMLInputElement>(null);
   const captureRef = useRef<HTMLTextAreaElement>(null);
 
@@ -975,11 +973,10 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
 
                 <div className="vi-card__body">
                   {/* نص الرسالة الأصلي ظاهر دائماً للمقارنة (البطاقة اليدوية بلا رسالة) */}
-                  {!d.manual && <div className={`vi-src ${openSrc.has(d.key) ? 'is-open' : ''}`}
-                    onClick={() => setOpenSrc(s => { const n = new Set(s); if (n.has(d.key)) n.delete(d.key); else n.add(d.key); return n; })}>
-                    <div className="vi-src__head"><MessageSquareText size={12} /> الرسالة{d.sender ? ` — ${d.sender}` : ''}
+                  {/* الرسالة كاملة دائماً بلا طيّ، والرأس = المرسل فقط + اسم الكروب كاملاً (طلب صاحب المشروع 2026-11-24) */}
+                  {!d.manual && <div className="vi-src">
+                    <div className="vi-src__head"><MessageSquareText size={12} /> {d.sender || 'الرسالة'}
                       {d.bot?.chat && <span className="vi-src__chat" title={`الكروب: ${d.bot.chat}`}>{d.bot.chat}</span>}
-                      <span className="vi-src__more">{openSrc.has(d.key) ? 'طيّ' : 'عرض كاملة'}</span>
                     </div>
                     {d.bot && (botImages[d.bot.orderId]?.length ?? 0) > 0 && (
                       <div className="vi-thumbs">

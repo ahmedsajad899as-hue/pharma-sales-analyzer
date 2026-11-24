@@ -381,7 +381,7 @@ export async function attachScientificRepGuess(rows, actingUser) {
           id: true, username: true, displayName: true, linkedRepId: true,
           linkedRep:          { select: { repKind: true } },
           areaAssignments:    { select: { areaId: true } },
-          companyAssignments: { select: { companyId: true, company: { select: { name: true } } } },
+          companyAssignments: { select: { companyId: true, isPrimary: true } },
           itemAssignments:    { select: { itemId: true } },
         },
       }),
@@ -412,7 +412,7 @@ export async function attachScientificRepGuess(rows, actingUser) {
           })
         : Promise.resolve([]),
       actingUser.officeId
-        ? prisma.scientificCompany.findMany({ where: { officeId: actingUser.officeId }, select: { id: true, name: true } })
+        ? prisma.scientificCompany.findMany({ where: { officeId: actingUser.officeId }, select: { id: true, name: true, isActive: true } })
         : Promise.resolve([]),
       // مدراء ومكاتب: لا يُقترحون مندوبين ولو حملوا سجلّ مندوب بمناطق.
       prisma.user.findMany({
@@ -866,14 +866,20 @@ export async function attachScientificRepGuess(rows, actingUser) {
 
     // ── قائمة خانة المندوب في المراجعة: مندوبو محافظة الطلبية فقط (طلب صاحب المشروع
     // 2026-11-24) — المرشّحون (صاحب الصنف × المنطقة) أولاً، ثم مندوبو المنطقة، ثم بقية
-    // المحافظة؛ ومع كل اسم شركته. بلا محافظة معروفة ⇒ لا قائمة (الواجهة تعرض الفريق كله).
-    const companyNameById = new Map(sciCompanies.map(c => [c.id, c.name]));
-    for (const r of repUsers) for (const a of r.companyAssignments) if (a.company?.name && !companyNameById.has(a.companyId)) companyNameById.set(a.companyId, a.company.name);
+    // المحافظة؛ ومع كل اسم شركته الرئيسية فقط (طلب صاحب المشروع 2026-11-24: «deva، Marcyrl»
+    // و«CT، DLBEEN» أربكت المراجِع) — من قائمة شركات المكتب الفعّالة لا غيرها.
+    const companyNameById = new Map(sciCompanies.filter(c => c.isActive !== false).map(c => [c.id, c.name]));
+    const primaryCompanyByUser = new Map();
+    for (const r of repUsers) {
+      const p = r.companyAssignments.find(a => a.isPrimary && companyNameById.has(a.companyId));
+      if (p) primaryCompanyByUser.set(r.id, p.companyId);
+    }
     const provinceIdOfArea = new Map(areas.map(a => [a.id, provinceOfAreaRow(a)]));
-    const repCompanies = (c, sciId) => {
-      const ids = [...new Set([...c.ownedCompanies, ...c.companies])];
-      if (sciId != null && ids.includes(sciId)) ids.unshift(...ids.splice(ids.indexOf(sciId), 1));
-      return ids.map(id => companyNameById.get(id)).filter(Boolean).slice(0, 2).join('، ') || null;
+    // الرئيسية المعلَّمة على الحساب، وإلا شركته في فريق المحافظة/سجلّه، وإلا أول شركة معيَّنة له.
+    const repCompanies = (c) => {
+      const id = primaryCompanyByUser.get(c.id)
+        ?? [...c.ownedCompanies, ...c.companies].find(x => companyNameById.has(x));
+      return id != null ? companyNameById.get(id) : null;
     };
     for (const [row, ctx] of ctxByRow) {
       delete row._repOptions; // قائمة مخزَّنة من قراءة سابقة تُعاد من التعيينات الحالية
@@ -891,7 +897,7 @@ export async function attachScientificRepGuess(rows, actingUser) {
         if (!k || seen.has(k)) return;
         seen.add(k);
         const full = index.find(x => x === c) || index.find(x => repCoreKey(x.name) === k);
-        ordered.push({ id: c.id, name: c.name, company: full ? repCompanies(full, ctx.sciId) : null, star });
+        ordered.push({ id: c.id, name: c.name, company: full ? repCompanies(full) : null, star });
       };
       ctx.candidates.forEach(c => push(c, true));
       (ctx.areaPool || []).filter(c => inProvince.includes(c)).forEach(c => push(c, false));
