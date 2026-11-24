@@ -26,6 +26,8 @@ import { arabicBrandWord, crossScriptFamily } from '../../lib/drugSkeleton.js';
 import { applyTextParse, TEXT_PARSE_VERSION, parseOrderRowsWithoutAi } from './order-extract.js';
 import { fillRepFromSenderName, fillAreaFromGroup, fillAreaFromRep } from './group-context.js';
 import { loadItemOwnerManagers } from '../../lib/itemOwnerManager.js';
+import { loadSeatManagers } from '../../lib/provinceSeats.js';
+import { repTeamCompany } from '../province-teams/province-teams.rules.js';
 import { createFromBotOrder } from '../warehouse-dispatch/dispatch.core.js';
 import { linkInvoiceReadLogs } from '../../lib/invoiceReadLog.js';
 
@@ -382,6 +384,7 @@ export async function attachScientificRepGuess(rows, actingUser) {
           linkedRep:          { select: { repKind: true } },
           areaAssignments:    { select: { areaId: true } },
           companyAssignments: { select: { companyId: true, isPrimary: true } },
+          managersOfUser:     { select: { managerId: true } },
           itemAssignments:    { select: { itemId: true } },
         },
       }),
@@ -875,8 +878,39 @@ export async function attachScientificRepGuess(rows, actingUser) {
       if (p) primaryCompanyByUser.set(r.id, p.companyId);
     }
     const provinceIdOfArea = new Map(areas.map(a => [a.id, provinceOfAreaRow(a)]));
-    // الرئيسية المعلَّمة على الحساب، وإلا شركته في فريق المحافظة/سجلّه، وإلا أول شركة معيَّنة له.
+    // مندوب فرق المحافظات: شركة تيمه كما في «فرق المحافظات» (repTeamCompany) — والمشترك
+    // بين مديرَي مقعدين يُعرض بالشركتين «deva + osel» (طلب صاحب المشروع 2026-11-24).
+    const teamCompanyByUser = new Map();
+    if (provinceAssignments.length && actingUser.officeId) {
+      try {
+        const seats = await loadSeatManagers([actingUser.officeId]);
+        const allCompanyNames = new Map(sciCompanies.map(c => [c.id, c.name]));
+        const byRep = new Map();
+        for (const pa of provinceAssignments) {
+          if (!byRep.has(pa.repUserId)) byRep.set(pa.repUserId, []);
+          byRep.get(pa.repUserId).push(pa);
+        }
+        for (const r of repUsers) {
+          const own = byRep.get(r.id);
+          if (!own) continue;
+          const primaryIds = new Set(r.companyAssignments.filter(a => a.isPrimary).map(a => a.companyId));
+          const name = repTeamCompany(
+            own.map(a => ({
+              companyId: a.companyId, companyName: allCompanyNames.get(a.companyId) ?? null, allItems: a.allItems,
+              itemIds: a.items.map(i => i.itemId), isPrimary: primaryIds.has(a.companyId),
+            })),
+            r.managersOfUser.map(x => x.managerId),
+            seats,
+          );
+          if (name) teamCompanyByUser.set(r.id, name);
+        }
+      } catch (e) { console.error('[orders] rep team company failed:', e?.message); }
+    }
+    // شركة تيم المحافظة، وإلا الرئيسية المعلَّمة على الحساب، وإلا شركته في فريق المحافظة/سجلّه،
+    // وإلا أول شركة معيَّنة له.
     const repCompanies = (c) => {
+      const team = teamCompanyByUser.get(c.id);
+      if (team) return team;
       const id = primaryCompanyByUser.get(c.id)
         ?? [...c.ownedCompanies, ...c.companies].find(x => companyNameById.has(x));
       return id != null ? companyNameById.get(id) : null;

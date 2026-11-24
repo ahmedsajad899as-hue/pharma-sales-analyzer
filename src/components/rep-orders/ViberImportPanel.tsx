@@ -140,7 +140,7 @@ function toRepOpts(list: ServerRepOpt[], byName: (name: string) => Rep): RepOpt[
   return out;
 }
 
-const REP_WHY: Record<string, string> = { bot: 'من الطلبية', botLeader: 'تيم ليدر — لم يُحسم مندوب علمي للصنف', leader: 'تيم ليدر المنطقة (لا مندوب علمي لها)', area: 'صاحب المنطقة', sender: 'من اسم المرسل', learned: 'اخترته سابقاً لنفس المرسل', guess: 'صاحب المنطقة' };
+const REP_WHY: Record<string, string> = { bot: '', botLeader: 'تيم ليدر — لم يُحسم مندوب علمي للصنف', leader: 'تيم ليدر المنطقة (لا مندوب علمي لها)', area: 'صاحب المنطقة', sender: 'من اسم المرسل', learned: 'اخترته سابقاً لنفس المرسل', guess: 'صاحب المنطقة' };
 const dayStr = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const IS_TOUCH = typeof window !== 'undefined' && !!window.matchMedia?.('(pointer: coarse)').matches;
 const fmtPrice = (n?: number | null) => (n != null && Number.isFinite(Number(n)) ? Math.round(Number(n)).toLocaleString('en-US') : null);
@@ -952,7 +952,7 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
             // زر النوع: لصق/كتابة فقط (لا مراجعة البوت) وحين يكون للفريق مسوقون
             const kindOn = !d.bot && marketers.length > 0;
             const kind: RepKind = kindOn ? repKind : 'auto';
-            const repHint = [d.repWhy ? REP_WHY[d.repWhy] : d.repUserId ? '' : (d.repNote ?? ''), d.repWhy === 'botLeader' ? (d.repNote ?? '') : '', d.sender ? `المرسل: ${d.sender}` : ''].filter(Boolean).join(' · ');
+            const repHint = [d.repWhy ? REP_WHY[d.repWhy] : d.repUserId ? '' : (d.repNote ?? ''), d.repWhy === 'botLeader' ? (d.repNote ?? '') : '', d.sender ?? ''].filter(Boolean).join(' · ');
             return (
               <div key={d.key} className={`vi-card ${!d.include ? 'is-off' : ''} ${d.state ? `is-${d.state}` : ''}`}>
                 <div className="vi-card__head">
