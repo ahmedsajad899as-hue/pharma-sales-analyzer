@@ -8,6 +8,7 @@ const router = Router();
 router.get   ('/scientific-reps',        ctrl.listScientificReps);
 router.get   ('/catalog-suggest',        ctrl.catalogSuggest);
 router.post  ('/refresh-row',            ctrl.refreshRow);
+router.post  ('/learn',                  ctrl.learnFromReview);
 router.get   ('/pending/count',          ctrl.getPendingCount);
 router.get   ('/pending',                ctrl.listPending);
 router.get   ('/pending/:id',            ctrl.getPending);

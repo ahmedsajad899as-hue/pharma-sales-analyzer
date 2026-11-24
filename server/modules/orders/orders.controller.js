@@ -4,6 +4,8 @@
 // ════════════════════════════════════════════════════════════════════════════
 
 import fs from 'fs';
+import prisma from '../../lib/prisma.js';
+import { recordLessons, recordCorrectionCase } from '../../lib/orderLearning.js';
 import {
   listPendingOrders, getPendingOrder, deletePendingOrder,
   countVisiblePendingOrders, getPendingOrderImagePath, listOfficeScientificReps,
@@ -74,5 +76,18 @@ export async function deletePending(req, res, next) {
 export async function listScientificReps(req, res, next) {
   try {
     res.json({ success: true, data: await listOfficeScientificReps(req.user.id) });
+  } catch (e) { next(e); }
+}
+
+// ── POST /api/orders/learn — ذاكرة التصحيحات بعد حفظ طلبية بوت ────────────────
+// best-effort من الواجهة بعد نجاح الحفظ: الدروس (منطقة/صيدلية/مذخر/مندوب) +
+// «رسالة صحّحها المراجعون» حين تغيّرت الأسطر أو الكميات. راجع lib/orderLearning.js.
+export async function learnFromReview(req, res, next) {
+  try {
+    const user = await prisma.user.findUnique({ where: { id: req.user.id }, select: { id: true, username: true, displayName: true } });
+    if (!user) return res.status(401).json({ success: false, error: 'غير مصرّح' });
+    const lessons = await recordLessons(user, req.body?.corrections);
+    const kase = await recordCorrectionCase(user, req.body?.case);
+    res.json({ success: true, data: { ...lessons, caseId: kase?.id ?? null } });
   } catch (e) { next(e); }
 }

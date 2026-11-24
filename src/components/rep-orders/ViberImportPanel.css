@@ -216,3 +216,9 @@ button.vi-line__name:disabled { cursor: default; }
 .vi-f > span.vi-clearable { position: relative; display: block; font-size: inherit; font-weight: inherit; color: inherit; }
 .vi-clearable > .form-input { width: 100%; padding-left: 34px; }
 .vi-clearable__x { position: absolute; left: 6px; top: 50%; transform: translateY(-50%); }
+
+/* ذاكرة التصحيحات: شارة 🧠 داخل الخانة التي ملأها تصحيح سابق (2026-11-24) */
+.vi-memwrap { position: relative; display: block; min-width: 0; }
+.vi-f > span.vi-memwrap { display: block; font-size: inherit; font-weight: inherit; color: inherit; }
+.vi-mem { position: absolute; inset-inline-end: 8px; top: 50%; transform: translateY(-50%); font-size: 13px; line-height: 1; cursor: help; z-index: 2; }
+.vi-mem-inline { font-size: 11px; margin-inline-start: 2px; }

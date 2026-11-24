@@ -27,6 +27,9 @@ interface DraftLine {
   itemId: number | null; itemName: string; writtenAs: string; quantity: number; bonusQty: number; matched: boolean;
   suggestions: { id: number; name: string }[]; companyName?: string | null; unitPrice?: number | null;
   editing?: boolean; // الواجهة: الصنف المطابَق فُتح للبحث عن غيره
+  // ذاكرة التصحيحات: الصنف كما ربطه الخادم، ورقم السطر في القراءة الأصلية (السطر المضاف بلا رقم)،
+  // وmemory = رُبط بقاعدة توحيد (تصحيح سابق)
+  origItemId?: number | null; origIdx?: number; memory?: boolean;
 }
 interface MentionedWh { id: number | null; name: string; ready?: boolean }
 /** طلبية بوت معلَّقة (صفحة رفع الملفات) — نفس شكل PendingOrderDetail في ManualSalesModal. */
@@ -53,8 +56,17 @@ interface Draft {
   key: string; source: string; sourceText: string; sender: string | null; mentions: string[]; readBy: string;
   pharmacyName: string; areaName: string; warehouseId: number | null; warehouseName: string; backupWarehouseIds: number[];
   mentionedWarehouses: MentionedWh[];
-  notes: string; lines: DraftLine[]; repUserId: number | null; repName: string | null; repWhy: 'area' | 'leader' | 'sender' | 'learned' | 'guess' | 'bot' | 'botLeader' | null; repNote?: string | null;
+  notes: string; lines: DraftLine[]; repUserId: number | null; repName: string | null; repWhy: 'area' | 'leader' | 'sender' | 'learned' | 'guess' | 'bot' | 'botLeader' | 'memory' | null; repNote?: string | null;
   repCandidates: { id: number; name: string }[]; sourceHash: string | null;
+  // ذاكرة التصحيحات (طلبية البوت): ما قرأه المحلّل (raw) وما عُرض (shown، بعد دروس سابقة)،
+  // فالفرق عند الحفظ يصير درساً. learned = الخانات التي ملأتها الذاكرة (شارة 🧠).
+  orig?: {
+    pharmacy: string; area: string; warehouse: string;
+    shown: { pharmacy: string; area: string; warehouse: string };
+    repUserId: number | null;
+    lines: { itemName: string; itemId: number | null; quantity: number; bonusQty: number }[];
+  };
+  learned?: { pharmacy?: boolean; area?: boolean; warehouse?: boolean; rep?: boolean };
   duplicateOf: { id: number; pharmacyName: string; createdAt: string; status: string } | null; dupInBatch: boolean; warnings: string[];
   // الواجهة فقط — manual: بطاقة «كتابة يدوية» بلا رسالة (نفس الحقول والحفظ)
   manual?: boolean;
@@ -93,6 +105,22 @@ function botDrafts(o: BotOrder): Draft[] {
   return [...groups.values()].map((rs, gi) => {
     const first = rs[0] || {};
     const written = [...new Set(rs.map(r => String(r.warehouse ?? '').trim()).filter(Boolean))];
+    // ما قرأه المحلّل قبل أي درس سابق (الخادم يحفظه في _learned حين يطبّق درساً)
+    const L = (first._learned && typeof first._learned === 'object') ? first._learned : {};
+    const rawOf = (f: 'pharmacy' | 'area') => String(L[f] != null ? L[f] : (first[f] ?? '')).trim();
+    const lines: DraftLine[] = rs.map((r, li) => {
+      const q = numOf(r.quantity);
+      const unit = r.unitPrice != null && r.unitPrice !== '' ? numOf(r.unitPrice) : (numOf(r.total) && q ? numOf(r.total) / q : null);
+      return {
+        // writtenAs = ما كتبه المندوب (قبل توحيده مع الكتالوج) — تغيير صنفه يُحفَظ قاعدةً
+        // (rememberItems)، حتى الصنف المربوط آلياً خطأً: الخادم يحفظ ما قُرئ في _readItem.
+        itemId: r._itemId ?? null, itemName: String(r.item ?? ''),
+        writtenAs: String(r._readItem ?? (r._itemId ? '' : (r.item ?? ''))),
+        quantity: q, bonusQty: numOf(r.bonus), matched: Boolean(r._itemId), suggestions: [],
+        companyName: r.company || null, unitPrice: unit,
+        origItemId: r._itemId ?? null, origIdx: li, memory: Boolean(r._itemId) && r._itemMatch?.confidence === 'alias',
+      };
+    });
     return {
       key: `b${o.id}-${gi}`, source: o.source, sourceText: o.sourceText || '', sender: o.senderName || null,
       mentions: [], readBy: 'parser',
@@ -100,17 +128,15 @@ function botDrafts(o: BotOrder): Draft[] {
       warehouseId: null, warehouseName: written[0] ?? '', backupWarehouseIds: [], mentionedWarehouses: [],
       writtenWarehouses: written, whText: written[0] ?? '',
       notes: [...new Set(rs.map(r => String(r.notes ?? '').trim()).filter(Boolean))].join(' — '),
-      lines: rs.map(r => {
-        const q = numOf(r.quantity);
-        const unit = r.unitPrice != null && r.unitPrice !== '' ? numOf(r.unitPrice) : (numOf(r.total) && q ? numOf(r.total) / q : null);
-        return {
-          // writtenAs = ما كتبه المندوب ولم يُربط — اختيار صنف له يُحفَظ قاعدةً (rememberItems).
-          // الصنف المربوط آلياً اسمه اسم الكتالوج، فلا يُتذكَّر تغييره كأنه «كُتب هكذا».
-          itemId: r._itemId ?? null, itemName: String(r.item ?? ''), writtenAs: r._itemId ? '' : String(r.item ?? ''),
-          quantity: q, bonusQty: numOf(r.bonus), matched: Boolean(r._itemId), suggestions: [],
-          companyName: r.company || null, unitPrice: unit,
-        };
-      }),
+      lines,
+      orig: {
+        pharmacy: rawOf('pharmacy'), area: rawOf('area'),
+        warehouse: String(L.warehouse != null ? L.warehouse : (written[0] ?? '')).trim(),
+        shown: { pharmacy: String(first.pharmacy ?? ''), area: String(first.area ?? ''), warehouse: written[0] ?? '' },
+        repUserId: null,
+        lines: lines.map(l => ({ itemName: l.itemName, itemId: l.itemId, quantity: l.quantity, bonusQty: l.bonusQty })),
+      },
+      learned: { pharmacy: L.pharmacy != null, area: L.area != null, warehouse: L.warehouse != null, rep: first._repPick === 'memory' },
       repUserId: null, repName: String(first.scientificRep ?? '') || null, repWhy: null, repNote: null,
       repCandidates: [], sourceHash: null, duplicateOf: null, dupInBatch: false, warnings: [], include: true,
       date: first.date ? String(first.date) : undefined, invoiceNumber: first.invoiceNumber ? String(first.invoiceNumber) : undefined,
@@ -140,7 +166,7 @@ function toRepOpts(list: ServerRepOpt[], byName: (name: string) => Rep): RepOpt[
   return out;
 }
 
-const REP_WHY: Record<string, string> = { bot: '', botLeader: 'تيم ليدر — لم يُحسم مندوب علمي للصنف', leader: 'تيم ليدر المنطقة (لا مندوب علمي لها)', area: 'صاحب المنطقة', sender: 'من اسم المرسل', learned: 'اخترته سابقاً لنفس المرسل', guess: 'صاحب المنطقة' };
+const REP_WHY: Record<string, string> = { bot: '', memory: '🧠 من تصحيح سابق', botLeader: 'تيم ليدر — لم يُحسم مندوب علمي للصنف', leader: 'تيم ليدر المنطقة (لا مندوب علمي لها)', area: 'صاحب المنطقة', sender: 'من اسم المرسل', learned: 'اخترته سابقاً لنفس المرسل', guess: 'صاحب المنطقة' };
 const dayStr = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const IS_TOUCH = typeof window !== 'undefined' && !!window.matchMedia?.('(pointer: coarse)').matches;
 const fmtPrice = (n?: number | null) => (n != null && Number.isFinite(Number(n)) ? Math.round(Number(n)).toLocaleString('en-US') : null);
@@ -158,6 +184,12 @@ function choosePrimary(d: Draft, m: MentionedWh): Partial<Draft> {
 
 // ─── البحث الذكي في الكتالوج ─────────────────────────────────────────────────
 const sKey = (s: unknown) => normSearch(s).replace(/[^a-z0-9؀-ۿ]+/g, ' ').trim();
+
+/** شارة 🧠: القيمة ملأتها ذاكرة التصحيحات وما زالت كما عُرضت. */
+function memBadge(on: boolean | undefined, now: string, shown?: string, raw?: string) {
+  if (!on || sKey(now) !== sKey(shown ?? '')) return null;
+  return <span className="vi-mem" title={`🧠 من تصحيح سابق${raw ? ` — قُرئت «${raw}»` : ''}. غيّرها إن كانت خطأ فيتعلّم التصحيح الجديد`}>🧠</span>;
+}
 
 /** «pantactive 40» يطابق «PANTACTIVE 40MG TAB»؛ وكلمة ناقصة/خاطئة تُطابَق ببداية العلامة. */
 export function searchCatalog(items: CatItem[], q: string, limit = 8): CatItem[] {
@@ -404,7 +436,8 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
         const leaderPick = (d as any)._repPick === 'leader';
         const opts = (d as any)._opts as ServerRepOpt[] | null;
         return { ...d, repCandidates: cands, repOptions: opts ? toRepOpts(opts, optOf) : null, repUserId: picked?.id ?? null, repName: picked?.name ?? null,
-          repWhy: picked ? (leaderPick ? 'botLeader' as const : 'bot' as const) : null, repNote: leaderPick ? ((d as any)._repNote ?? null) : d.repNote };
+          repWhy: picked ? (d.learned?.rep ? 'memory' as const : leaderPick ? 'botLeader' as const : 'bot' as const) : null, repNote: leaderPick ? ((d as any)._repNote ?? null) : d.repNote,
+          orig: d.orig ? { ...d.orig, repUserId: picked?.id ?? null } : d.orig };
       });
       if (extra.length) setTeam(prev => [...prev, ...extra.filter(x => !prev.some(p => p.id === x.id))]);
       setDrafts(built);
@@ -765,6 +798,51 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [drafts, mode]);
 
+  /**
+   * ذاكرة التصحيحات لطلبية بوت: كل خانة غيّرها المراجِع عمّا عُرض ← درس (من أول تصحيح)،
+   * وتغيير الأسطر/الكميات ← «رسالة صحّحها المراجعون» لإصلاح المحلّل نفسه.
+   */
+  const learningOf = (batch: Draft[]) => {
+    const corrections: any[] = [];
+    const reasons = new Set<string>();
+    const parsed: any[] = [], saved: any[] = [];
+    for (const d of batch) {
+      const o = d.orig;
+      if (!d.bot || !o) continue;
+      const ph = d.pharmacyName.trim(), ar = d.areaName.trim(), wh = (d.whText ?? '').trim();
+      if (o.pharmacy && ph && sKey(ph) !== sKey(o.shown.pharmacy)) corrections.push({ field: 'pharmacy', from: o.pharmacy, to: ph });
+      if (sKey(ar) !== sKey(o.shown.area)) {
+        if (o.area) corrections.push({ field: 'area', from: o.area, to: ar });
+        else if (ph && ar) corrections.push({ field: 'pharmacyArea', from: ph, to: ar });
+      }
+      if (o.warehouse && wh && sKey(wh) !== sKey(o.shown.warehouse)) corrections.push({ field: 'warehouse', from: o.warehouse, to: wh });
+      const kept = d.lines.filter(l => l.itemName.trim() && l.quantity > 0);
+      // المندوب اختاره المراجِع بيده (repWhy يُمسح عند الاختيار) ← درس لكل صنف في هذه المنطقة
+      if (d.repUserId && d.repUserId > 0 && d.repWhy == null && d.repUserId !== o.repUserId) {
+        const name = allReps.find(r => r.id === d.repUserId)?.name ?? d.repName ?? '';
+        if (name) for (const l of kept) if (l.itemId) corrections.push({ field: 'rep', area: ar, itemId: l.itemId, itemName: l.itemName, to: name, toId: d.repUserId });
+      }
+      if (kept.some(l => l.origIdx == null)) reasons.add('سطر مضاف');
+      const keptIdx = new Set(kept.map(l => l.origIdx).filter(x => x != null));
+      if (o.lines.some((ol, i) => ol.itemName.trim() && !keptIdx.has(i))) reasons.add('سطر محذوف');
+      for (const l of kept) {
+        const ol = l.origIdx != null ? o.lines[l.origIdx] : null;
+        if (!ol) continue;
+        if (ol.quantity !== l.quantity) reasons.add('كمية');
+        if (ol.bonusQty !== l.bonusQty) reasons.add('بونص');
+      }
+      if (!o.shown.pharmacy.trim() && ph) reasons.add('صيدلية لم تُقرأ');
+      parsed.push({ pharmacy: o.shown.pharmacy, area: o.shown.area, warehouse: o.shown.warehouse, lines: o.lines.map(l => ({ item: l.itemName, qty: l.quantity, bonus: l.bonusQty })) });
+      saved.push({ pharmacy: ph, area: ar, warehouse: wh, lines: kept.map(l => ({ item: l.itemName, qty: l.quantity, bonus: l.bonusQty, ...(l.origIdx == null ? { added: true } : {}) })) });
+    }
+    const d0 = batch.find(d => d.bot);
+    const caseInfo = reasons.size && d0 ? {
+      pendingId: d0.bot!.orderId, source: d0.bot!.source, chatTitle: d0.bot!.chat ?? null, senderName: d0.sender,
+      sourceText: d0.sourceText, reasons: [...reasons], parsed, saved,
+    } : null;
+    return corrections.length || caseInfo ? { corrections, case: caseInfo } : null;
+  };
+
   /** «لكوديشن»: فحص التكرار مع الملف وميركاتو (تنبيه فقط كمراجعة البوت) ثم حفظ كل طلبية وحدها. */
   const createLiq = async (todo: Draft[]) => {
     const target = { condition: true, sourceCurrency: 'IQD' };
@@ -803,7 +881,7 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
       // «اموكلافين شراب» اختار له المراجِع صنفاً ⇒ قاعدة توحيد، فتُربط الطلبية القادمة بنفس
       // الكتابة تلقائياً (نفس rememberItems في جدول المراجعة القديم).
       const rememberItems = batch.filter(d => d.bot).flatMap(d => d.lines
-        .filter(l => l.itemId && l.quantity > 0 && l.writtenAs.trim() && sKey(l.writtenAs) !== sKey(l.itemName))
+        .filter(l => l.itemId && l.quantity > 0 && l.writtenAs.trim() && sKey(l.writtenAs) !== sKey(l.itemName) && l.itemId !== l.origItemId)
         .map(l => ({ from: l.writtenAs.trim(), toItemId: l.itemId as number })));
       try {
         const r = await salesPost<{ addedCount?: number; skippedCount?: number; uploadedFile?: { id: number } }>('manual', {
@@ -812,6 +890,9 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
         });
         const added = r?.addedCount ?? 0, skipped = r?.skippedCount ?? 0;
         fileId = fileId ?? r?.uploadedFile?.id;
+        // ذاكرة التصحيحات: ما غيّره المراجِع يُتعلَّم للطلبيات القادمة (لا يُفشل الحفظ)
+        const learn = learningOf(batch);
+        if (learn) fetch(`${API}/api/orders/learn`, { method: 'POST', headers: authJson, body: JSON.stringify(learn) }).catch(() => {});
         if (orderId) savedOrders.push(orderId);
         if (!added && skipped) {
           for (const d of batch) patch(d.key, { state: 'warn', result: `موجودة أصلاً في اللكوديشن — لم يُضف شيء (${skipped} سطر)` });
@@ -991,11 +1072,17 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
                   <div className="vi-form">
                     <div className="vi-fields">
                       <label className="vi-f vi-f--ph"><span>الصيدلية</span>
-                        <input className="form-input" value={d.pharmacyName} disabled={locked} placeholder="اسم الصيدلية *" autoFocus={d.manual && !d.pharmacyName} onChange={e => patch(d.key, { pharmacyName: e.target.value })} />
+                        <span className="vi-memwrap">
+                          <input className="form-input" value={d.pharmacyName} disabled={locked} placeholder="اسم الصيدلية *" autoFocus={d.manual && !d.pharmacyName} onChange={e => patch(d.key, { pharmacyName: e.target.value })} />
+                          {memBadge(d.learned?.pharmacy, d.pharmacyName, d.orig?.shown.pharmacy, d.orig?.pharmacy)}
+                        </span>
                       </label>
                       <label className="vi-f"><span>المنطقة</span>
-                        <AreaSearch areas={areaOpts} value={d.areaName} disabled={locked}
-                          onText={v => patch(d.key, { areaName: v })} onCommit={a => (d.bot ? refreshBotRep(d.key, a) : resolveRep(d.key, a))} />
+                        <span className="vi-memwrap">
+                          <AreaSearch areas={areaOpts} value={d.areaName} disabled={locked}
+                            onText={v => patch(d.key, { areaName: v })} onCommit={a => (d.bot ? refreshBotRep(d.key, a) : resolveRep(d.key, a))} />
+                          {memBadge(d.learned?.area, d.areaName, d.orig?.shown.area, d.orig?.area)}
+                        </span>
                       </label>
                       {/* div لا label: الضغط على عنوان الحقل كان سيضغط زر النوع */}
                       <div className="vi-f"><span className="vi-f__h">{kindOn ? (kind === 'mkt' ? 'المسوق' : 'المندوب') : 'المندوب العلمي'}
@@ -1029,8 +1116,11 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
                     {mode === 'liq' && (
                       <div className="vi-sec">
                         <div className="vi-sec__h">المذخر <small>كما في الرسالة</small></div>
-                        <input className="form-input" value={d.whText ?? ''} disabled={locked} placeholder="اسم المذخر (اختياري)"
-                          onChange={e => patch(d.key, { whText: e.target.value })} />
+                        <span className="vi-memwrap">
+                          <input className="form-input" value={d.whText ?? ''} disabled={locked} placeholder="اسم المذخر (اختياري)"
+                            onChange={e => patch(d.key, { whText: e.target.value })} />
+                          {memBadge(d.learned?.warehouse, d.whText ?? '', d.orig?.shown.warehouse, d.orig?.warehouse)}
+                        </span>
                         {(d.writtenWarehouses?.length ?? 0) > 1 && (
                           <div className="vi-chips">
                             {d.writtenWarehouses!.map(w => (
@@ -1104,6 +1194,7 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
                                 <div className="vi-line__item">
                                   <button className="vi-line__name" disabled={locked} title="تغيير الصنف" onClick={() => patchLine(d.key, i, { editing: true })}>
                                     <Check size={12} /> {l.itemName}
+                                    {l.memory && l.itemId === l.origItemId && <span className="vi-mem-inline" title={`🧠 من تصحيح سابق — كُتب «${l.writtenAs}»`}>🧠</span>}
                                   </button>
                                   {meta && <small className="vi-line__meta">{meta}</small>}
                                   {!locked && <button className="vi-x vi-line__edit" title="تغيير الصنف" onClick={() => patchLine(d.key, i, { editing: true })}><Pencil size={11} /></button>}

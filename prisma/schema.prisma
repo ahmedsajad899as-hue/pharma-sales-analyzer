@@ -3872,3 +3872,49 @@ model YazenMatchRun {
   @@map("yazen_match_runs")
 }
 
+
+// ─── ذاكرة التصحيحات لطلبيات البوت (2026-11-24) ─────────────────────────────
+// كل خانة يصحّحها المراجِع في «مراجعة طلبيات البوت» تصير درساً يُطبَّق من أول مرة
+// على الطلبيات القادمة (مع شارة 🧠). الصنف يُتعلَّم في ItemMergeRule (rememberItems)،
+// وهذا الجدول للمنطقة والصيدلية والمذخر والمندوب. scope = 'o:<officeId>' أو 'u:<userId>'.
+model OrderLearning {
+  id            Int       @id @default(autoincrement())
+  scope         String
+  field         String // area | pharmacy | warehouse | rep
+  fromKey       String // المفتاح المطبَّع لما قرأه المحلّل (للمندوب: منطقة|صنف)
+  fromName      String // كما ظهر — للعرض
+  toName        String // القيمة الصحيحة كما اختارها المراجِع
+  toId          Int? // المندوب: معرّف حسابه
+  hits          Int       @default(0) // كم مرة طُبِّق
+  lastUsedAt    DateTime?
+  createdById   Int?
+  createdByName String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@unique([scope, field, fromKey])
+  @@index([scope, field])
+  @@map("order_learnings")
+}
+
+// رسائل غيّر فيها المراجِع ما لا يُتعلَّم كقيمة (أسطر أُضيفت/حُذفت، كمية/بونص) — مادة
+// لإصلاح المحلّل نفسه دفعةً واحدة. status: open | fixed
+model OrderCorrectionCase {
+  id            Int      @id @default(autoincrement())
+  scope         String
+  pendingId     Int?
+  source        String?
+  chatTitle     String?
+  senderName    String?
+  sourceText    String?
+  reasons       String // نصّ قصير: «سطر مضاف · كمية»
+  parsed        Json // ما قرأه المحلّل
+  saved         Json // ما حفظه المراجِع
+  status        String   @default("open")
+  createdById   Int?
+  createdByName String?
+  createdAt     DateTime @default(now())
+
+  @@index([status, createdAt])
+  @@map("order_correction_cases")
+}

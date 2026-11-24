@@ -28,6 +28,7 @@ import { fillRepFromSenderName, fillAreaFromGroup, fillAreaFromRep } from './gro
 import { loadItemOwnerManagers } from '../../lib/itemOwnerManager.js';
 import { loadSeatManagers } from '../../lib/provinceSeats.js';
 import { repTeamCompany } from '../province-teams/province-teams.rules.js';
+import { applyFieldLessons, applyRepLessons } from '../../lib/orderLearning.js';
 import { createFromBotOrder } from '../warehouse-dispatch/dispatch.core.js';
 import { linkInvoiceReadLogs } from '../../lib/invoiceReadLog.js';
 
@@ -303,6 +304,8 @@ export async function enrichRowsFromCatalog(rows, userId, { linkOnly = false } =
     const key = String(row.item ?? '').trim();
     const r = resolved.get(key);
     if (!r) continue;
+    // ما قرأه المحلّل قبل توحيده مع الكتالوج — تصحيح المراجِع يُتعلَّم منه (orderLearning.js)
+    if (row._readItem == null) row._readItem = key;
 
     row._itemMatch = { confidence: r.confidence, suggestions: (r.suggestions || []).slice(0, 5) };
     const autoLink = r.confidence === 'alias' || r.confidence === 'exact' || r.confidence === 'high';
@@ -1758,6 +1761,14 @@ export async function getPendingOrder(userId, id) {
   const user = rows.length
     ? await prisma.user.findUnique({ where: { id: ownerId }, select: { id: true, officeId: true } })
     : null;
+  // ذاكرة التصحيحات: المنطقة/الصيدلية/المذخر كما صحّحها المراجعون سابقاً — قبل تخمين
+  // المندوب كي يُخمَّن من المنطقة المصحّحة (في الذاكرة فقط كبقية خطوات الفتح).
+  const learnScope = user ? (user.officeId ? `o:${user.officeId}` : `u:${user.id}`) : null;
+  if (learnScope) {
+    await applyFieldLessons(rows, learnScope);
+    // منطقة تغيّرت بالدرس ⇒ مندوب المنطقة القديمة يُعاد تخمينه أدناه
+    rows.forEach(r => { if (r?._learned?.area != null && r._repSource !== 'sender') r.scientificRep = null; });
+  }
   // صنف بلا ربط (طلبية حُوِّلت من حساب الكروب قبل 2026-10-31 بلا شركة) يُربط
   // بكتالوج المكتب عند الفتح فتظهر شركته وسعره — في الذاكرة فقط.
   if (needLink && user) {
@@ -1776,6 +1787,8 @@ export async function getPendingOrder(userId, id) {
   }
   // منطقة ما زالت فارغة ← محافظة المندوب (كروب البصرة، 2026-11-19).
   if (user) await fillAreaFromRep(rows.filter(Boolean), { user });
+  // درس المندوب (منطقة|صنف) يغلب كل تخمين — المراجِع اختاره صراحةً لنفس الحالة.
+  if (learnScope) await applyRepLessons(rows, learnScope);
   return {
     id: row.id,
     source: row.source,

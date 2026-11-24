@@ -116,6 +116,7 @@ import warehouseDispatchRoutes  from './modules/warehouse-dispatch/dispatch.rout
 import { resumeListenInbox } from './modules/wa-groups/wa-groups.listen.js';
 import { backfillCardSamples } from './lib/invoiceCardAuto.js';
 import dofiedRoutes from './modules/dofied/dofied.routes.js';
+import orderLearningSaRoutes from './modules/orders/order-learning.sa.routes.js';
 import { startDofiedScheduler } from './modules/dofied/dofied.sync.js';
 import { scheduleYazenMatchForFiles, scheduleYazenMatchForUser, startYazenMatchOnBoot } from './lib/yazenOfficeMatch.js';
 import { internalRouter as waGroupsInternalRoutes, adminRouter as waGroupsAdminRoutes, saRouter as waGroupsSaRoutes } from './modules/wa-groups/wa-groups.routes.js';
@@ -258,6 +259,7 @@ app.use('/api/sa/viber-links',    viberLinksRoutes);
 app.use('/api/sa/whatsapp-links', whatsappLinksRoutes);
 app.use('/api/sa/wa-campaigns',   waCampaignsSaRoutes);
 app.use('/api/sa/dofied',         dofiedRoutes);
+app.use('/api/sa/order-learning', orderLearningSaRoutes);
 app.use('/api/sa/wa-groups',      waGroupsSaRoutes);
 app.use('/api/sa/companies',      companiesRoutes);
 app.use('/api/sa/catalog-import', catalogImportRoutes);
