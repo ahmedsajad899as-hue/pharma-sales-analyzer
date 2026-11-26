@@ -35,6 +35,8 @@
 import React, { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { IRAQ_PROVINCE_SHAPES, IRAQ_MAP_VIEWBOX } from '../data/iraqProvinces';
 import ProvinceTeamsDirectory from './ProvinceTeamsDirectory';
+import FitToWidth from './FitToWidth';
+import { useIsMobile } from '../hooks/useIsMobile';
 import { BAGHDAD_SIDE_SHAPES, BAGHDAD_MAP_VIEWBOX } from '../data/baghdadSides';
 // Leaflet + صورة القمر الصناعي تُحمَّل فقط عند فتح بغداد
 const BaghdadSalesMap = lazy(() => import('./BaghdadSalesMap'));
@@ -260,6 +262,7 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
   // المحافظة المفتوح توزيع شركاتها في جدول الأسماء
   const [openProv, setOpenProv] = useState<string | null>(null);
   const marketers = repKind === 'pharmacy';
+  const isMobile = useIsMobile();
   // عرض العلميين: اللكوديشن = «مبيعات المندوبين» المؤكدة + ميركاتو وملف اللكوديشن النشطان بأسمائهم.
   const liqMode = !marketers && !marketersOnly;
   const repWord = marketers ? 'مسوّق' : 'مندوب علمي';
@@ -1156,8 +1159,9 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
         {nameList.length === 0 ? (
           <div style={{ color: '#94a3b8', fontSize: 13, padding: 12 }}>{loading || loadingTeams ? 'جاري تحميل بيانات المحافظات…' : 'لا توجد مبيعات ولا فرق محافظات في الفترة المختارة.'}</div>
         ) : (
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ borderCollapse: 'collapse', width: '100%', minWidth: hasCond ? 640 : 510 }}>
+          // الهاتف: الجدول كله في عرض الشاشة (يصغر الخط قليلاً) بدل التمرير الجانبي
+          <FitToWidth style={{ overflowX: 'auto' }}>
+            <table style={{ borderCollapse: 'collapse', width: '100%', minWidth: isMobile ? undefined : hasCond ? 640 : 510 }}>
               <thead>
                 <tr>
                   <th style={th}>التيم ليدر</th>
@@ -1236,7 +1240,7 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
                 </tr>
               </tfoot>
             </table>
-          </div>
+          </FitToWidth>
         )}
         {unplacedNote}
         {hasCond && condOutsideNote}

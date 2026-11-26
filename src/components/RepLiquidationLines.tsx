@@ -6,6 +6,8 @@
 
 import type React from 'react';
 import { useEffect, useMemo, useState } from 'react';
+import FitToWidth from './FitToWidth';
+import { useIsMobile } from '../hooks/useIsMobile';
 
 interface Line {
   date: string; invoice: string; pharmacy: string; area: string; province: string; warehouse: string;
@@ -37,6 +39,7 @@ export default function RepLiquidationLines({ token, fileIds, applyMonth, fmtVal
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState('');
   const [q, setQ] = useState('');
+  const isMobile = useIsMobile();
 
   useEffect(() => {
     const ac = new AbortController();
@@ -67,9 +70,10 @@ export default function RepLiquidationLines({ token, fileIds, applyMonth, fmtVal
   const total = useMemo(() => shown.reduce((a, r) => ({ qty: a.qty + r.quantity, bonus: a.bonus + (r.bonus || 0), usd: a.usd + r.usd }), { qty: 0, bonus: 0, usd: 0 }), [shown]);
   const orders = useMemo(() => new Set(shown.map(r => r.invoice || `${r.date}|${r.pharmacy}`)).size, [shown]);
 
-  const th: React.CSSProperties = { padding: '8px 8px', fontSize: 12, fontWeight: 800, color: '#334155', background: '#f1f5f9', borderBottom: '1px solid #cbd5e1', textAlign: 'right', whiteSpace: 'nowrap', position: 'sticky', top: 0, zIndex: 1 };
-  const td: React.CSSProperties = { padding: '6px 8px', fontSize: 12.5, color: '#0f172a', borderBottom: '1px solid #eef2f7', whiteSpace: 'nowrap' };
-  const num: React.CSSProperties = { ...td, textAlign: 'left', direction: 'ltr', fontVariantNumeric: 'tabular-nums' };
+  const th: React.CSSProperties = { padding: '8px 8px', fontSize: 12, fontWeight: 800, color: '#334155', background: '#f1f5f9', borderBottom: '1px solid #cbd5e1', textAlign: 'right', whiteSpace: isMobile ? 'normal' : 'nowrap', position: 'sticky', top: 0, zIndex: 1 };
+  // الهاتف: النص يلتف والحشو أصغر كي يبقى الخط أكبر حين يُصغَّر الجدول ليلائم الشاشة
+  const td: React.CSSProperties = { padding: isMobile ? '5px 4px' : '6px 8px', fontSize: 12.5, color: '#0f172a', borderBottom: '1px solid #eef2f7', whiteSpace: isMobile ? 'normal' : 'nowrap' };
+  const num: React.CSSProperties = { ...td, textAlign: 'left', direction: 'ltr', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' };
   const dash = <span style={{ color: '#cbd5e1' }}>—</span>;
 
   return (
@@ -98,6 +102,7 @@ export default function RepLiquidationLines({ token, fileIds, applyMonth, fmtVal
             <div style={{ color: '#94a3b8', padding: 24, textAlign: 'center' }}>{rows.length ? 'لا نتائج لهذا البحث.' : 'لا يوجد لكوديشن لهذا المندوب في هذه المحافظة للفترة المختارة.'}</div>
           )}
           {!loading && !err && shown.length > 0 && (
+            <FitToWidth>
             <table style={{ borderCollapse: 'collapse', width: '100%' }}>
               <thead>
                 <tr>
@@ -148,6 +153,7 @@ export default function RepLiquidationLines({ token, fileIds, applyMonth, fmtVal
                 </tr>
               </tfoot>
             </table>
+            </FitToWidth>
           )}
         </div>
       </div>

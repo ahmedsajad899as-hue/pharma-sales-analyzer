@@ -8,6 +8,8 @@
 
 import type React from 'react';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import FitToWidth from './FitToWidth';
+import { useIsMobile } from '../hooks/useIsMobile';
 
 interface Line {
   date: string; invoice: string; pharmacy: string; area: string; province: string; warehouse: string;
@@ -53,6 +55,7 @@ export default function AllProvincesLiquidation({ token, fileIds, applyMonth, fm
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const today = todayBaghdad();
   const tableRef = useRef<HTMLDivElement | null>(null);
+  const isMobile = useIsMobile();
   const [busy, setBusy] = useState<'' | 'xlsx' | 'png'>('');
 
   useEffect(() => {
@@ -253,9 +256,10 @@ export default function AllProvincesLiquidation({ token, fileIds, applyMonth, fm
     finally { wrap.remove(); setBusy(''); }
   };
 
-  const th: React.CSSProperties = { padding: '8px 8px', fontSize: 12, fontWeight: 800, color: '#334155', background: '#f1f5f9', borderBottom: '1px solid #cbd5e1', textAlign: 'right', whiteSpace: 'nowrap', position: 'sticky', top: 0, zIndex: 2 };
-  const td: React.CSSProperties = { padding: '6px 8px', fontSize: 12.5, color: '#0f172a', borderBottom: '1px solid #eef2f7', whiteSpace: 'nowrap' };
-  const num: React.CSSProperties = { ...td, textAlign: 'left', direction: 'ltr', fontVariantNumeric: 'tabular-nums' };
+  const th: React.CSSProperties = { padding: '8px 8px', fontSize: 12, fontWeight: 800, color: '#334155', background: '#f1f5f9', borderBottom: '1px solid #cbd5e1', textAlign: 'right', whiteSpace: isMobile ? 'normal' : 'nowrap', position: 'sticky', top: 0, zIndex: 2 };
+  // الهاتف: النص يلتف والحشو أصغر كي يبقى الخط أكبر حين يُصغَّر الجدول ليلائم الشاشة
+  const td: React.CSSProperties = { padding: isMobile ? '5px 4px' : '6px 8px', fontSize: 12.5, color: '#0f172a', borderBottom: '1px solid #eef2f7', whiteSpace: isMobile ? 'normal' : 'nowrap' };
+  const num: React.CSSProperties = { ...td, textAlign: 'left', direction: 'ltr', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' };
   const dash = <span style={{ color: '#cbd5e1' }}>—</span>;
   const sel: React.CSSProperties = { border: '1px solid #cbd5e1', borderRadius: 999, padding: '6px 10px', fontSize: 12.5, background: '#fff', maxWidth: 220 };
   const chip = (on: boolean): React.CSSProperties => ({ border: 'none', borderRadius: 6, padding: '4px 12px', fontSize: 12.5, cursor: 'pointer', background: on ? '#fff' : 'transparent', color: on ? '#0f172a' : '#64748b', fontWeight: on ? 800 : 600, boxShadow: on ? '0 1px 2px rgba(0,0,0,.08)' : 'none' });
@@ -332,6 +336,7 @@ export default function AllProvincesLiquidation({ token, fileIds, applyMonth, fm
             </div>
           )}
           {!loading && !err && shown.length > 0 && (
+            <FitToWidth>
             <table style={{ borderCollapse: 'collapse', width: '100%' }}>
               <thead>
                 <tr>
@@ -413,6 +418,7 @@ export default function AllProvincesLiquidation({ token, fileIds, applyMonth, fm
                 </tr>
               </tfoot>
             </table>
+            </FitToWidth>
           )}
         </div>
       </div>

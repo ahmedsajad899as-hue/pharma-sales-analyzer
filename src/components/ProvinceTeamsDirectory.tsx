@@ -10,6 +10,7 @@
 import type React from 'react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import RepLiquidationLines from './RepLiquidationLines';
+import FitToWidth from './FitToWidth';
 
 interface DirItem { itemId: number | null; name: string; company: string; net: number; qty: number; targetQty: number; personalQty: number; personalNet: number }
 interface DirRep { repUserId: number; repName: string; repActive: boolean; companies: string[]; net: number; repNet: number; qty: number; targetQty: number; personalQty: number; personalNet: number; items: DirItem[] }
@@ -197,6 +198,7 @@ export default function ProvinceTeamsDirectory({ token, fileIds, applyMonth, fmt
                         {r.items.length === 0
                           ? <div style={{ fontSize: 12.5, color: '#94a3b8', padding: '6px 0' }}>لا مبيع لايتمات هذا المندوب في هذه المحافظة للفترة المختارة.</div>
                           : (
+                            <FitToWidth>
                             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
                               <thead>
                                 <tr>
@@ -239,6 +241,7 @@ export default function ProvinceTeamsDirectory({ token, fileIds, applyMonth, fmt
                                 </tr>
                               </tfoot>
                             </table>
+                            </FitToWidth>
                           )}
                       </div>
                     )}
