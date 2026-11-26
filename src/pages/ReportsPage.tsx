@@ -4777,7 +4777,8 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
           )}
           {showAllProvLiq && (
             <AllProvincesLiquidation token={token} fileIds={activeFileIds} applyMonth={applyMonth} fmtVal={fmtVal}
-              currencyLabel={fileCurrencyMode === 'USD' ? '$' : 'د.ع'} onClose={() => setShowAllProvLiq(false)} />
+              currencyLabel={fileCurrencyMode === 'USD' ? '$' : 'د.ع'} onClose={() => setShowAllProvLiq(false)}
+              periodLabel={selMonth === 'all' ? 'الكل' : selMonth === 'none' ? 'بلا تاريخ' : selMonth === 'custom' ? `${fromDate} إلى ${toDate}` : selMonth} />
           )}
           {showProvCondition && token && (
             <WarehouseGapImportModal token={token} provinceMode

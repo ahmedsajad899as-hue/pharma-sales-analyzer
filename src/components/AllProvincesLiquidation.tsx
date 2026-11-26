@@ -7,7 +7,7 @@
 // ════════════════════════════════════════════════════════════════════════════
 
 import type React from 'react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 interface Line {
   date: string; invoice: string; pharmacy: string; area: string; province: string; warehouse: string;
@@ -21,6 +21,8 @@ interface Props {
   applyMonth: (p: URLSearchParams) => void;
   fmtVal: (n: number) => string;
   currencyLabel: string;
+  /** وصف فترة الصفحة (الشهر المختار) لاسم الملف وعنوان الصورة. */
+  periodLabel?: string;
   onClose: () => void;
 }
 
@@ -38,7 +40,7 @@ type Sum = { qty: number; bonus: number; usd: number; orders: Set<string> };
 const newSum = (): Sum => ({ qty: 0, bonus: 0, usd: 0, orders: new Set() });
 const addTo = (s: Sum, r: Line) => { s.qty += r.quantity; s.bonus += r.bonus || 0; s.usd += r.usd; s.orders.add(r.invoice || `${r.date}|${r.pharmacy}`); };
 
-export default function AllProvincesLiquidation({ token, fileIds, applyMonth, fmtVal, currencyLabel, onClose }: Props) {
+export default function AllProvincesLiquidation({ token, fileIds, applyMonth, fmtVal, currencyLabel, periodLabel, onClose }: Props) {
   // '' = فترة الصفحة (الشهر المختار)، وإلا يوم واحد YYYY-MM-DD
   const [day, setDay] = useState<string>('');
   const [rows, setRows] = useState<Line[]>([]);
@@ -50,6 +52,8 @@ export default function AllProvincesLiquidation({ token, fileIds, applyMonth, fm
   const [q, setQ] = useState('');
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const today = todayBaghdad();
+  const tableRef = useRef<HTMLDivElement | null>(null);
+  const [busy, setBusy] = useState<'' | 'xlsx' | 'png'>('');
 
   useEffect(() => {
     const ac = new AbortController();
@@ -112,6 +116,143 @@ export default function AllProvincesLiquidation({ token, fileIds, applyMonth, fm
   const allKeys = groups.flatMap(g => [`p:${g.province}`]);
   const anyOpen = allKeys.some(k => !collapsed.has(k));
 
+  // وصف ما يُعرض: الفترة + الفلاتر — لاسم الملف وعنوان الصورة
+  const period = day ? (day === today ? `اليوم ${day}` : day) : (periodLabel || 'الشهر المختار');
+  const filterDesc = [province, repId !== '' ? reps.find(([id]) => id === repId)?.[1] : '', item, q.trim() ? `بحث «${q.trim()}»` : '']
+    .filter(Boolean).join(' · ');
+  const fileBase = `لكوديشن كل المحافظات - ${period}${filterDesc ? ` - ${filterDesc}` : ''}`.replace(/[\\/:*?"<>|]/g, '-').slice(0, 150);
+
+  // ── إكسل: كل السطور المعروضة بعد الفلاتر (حتى المطوية)، مجمّعة كالشاشة + ورقة ملخص ──
+  const exportExcel = async () => {
+    if (busy || !shown.length) return;
+    setBusy('xlsx');
+    try {
+      const XLSX = await import('xlsx-js-style');
+      // fmtVal يحوّل لعملة العرض ويقرّب — نأخذ الرقم منه كي يطابق الملف الشاشة
+      const toNum = (n: number) => Number(fmtVal(n).replace(/[^\d.-]/g, '')) || 0;
+      const cur = currencyLabel;
+      const border = { style: 'thin', color: { rgb: 'D5DCE6' } };
+      const borders = { top: border, bottom: border, left: border, right: border };
+      const head = ['المحافظة', 'التيم ليدر', 'المندوب', 'التاريخ', 'رقم الفاتورة', 'الصيدلية', 'المنطقة', 'المذخر', 'الايتم', 'الشركة', 'الكمية', 'البونص', `السعر (${cur})`, `القيمة (${cur})`, 'المصدر'];
+      const NUM_COLS = [10, 11, 12, 13];
+      type Kind = 'title' | 'head' | 'prov' | 'rep' | 'line' | 'total';
+      const aoa: any[][] = [[`لكوديشن كل المحافظات — ${period}${filterDesc ? ` — ${filterDesc}` : ''}`], head];
+      const kinds: Kind[] = ['title', 'head'];
+      for (const g of groups) {
+        aoa.push([g.province, g.leader, `${g.reps.length} مندوب`, '', '', `${g.sum.orders.size} طلبية`, '', '', '', '', g.sum.qty, g.sum.bonus || null, null, toNum(g.sum.usd), '']);
+        kinds.push('prov');
+        for (const rp of g.reps) {
+          aoa.push([g.province, g.leader, rp.repName, '', '', `${rp.sum.orders.size} طلبية`, '', '', '', '', rp.sum.qty, rp.sum.bonus || null, null, toNum(rp.sum.usd), '']);
+          kinds.push('rep');
+          for (const r of rp.lines) {
+            aoa.push([g.province, g.leader, rp.repName, r.date, r.invoice, r.pharmacy, r.area, r.warehouse, r.item, r.company,
+              r.quantity, r.bonus || null, r.quantity ? toNum(r.usd / r.quantity) : null, toNum(r.usd), r.source]);
+            kinds.push('line');
+          }
+        }
+      }
+      aoa.push(['المجموع', '', `${groups.length} محافظة`, '', '', `${total.orders.size} طلبية`, '', '', '', '', total.qty, total.bonus || null, null, toNum(total.usd), '']);
+      kinds.push('total');
+
+      const ws = XLSX.utils.aoa_to_sheet(aoa);
+      ws['!cols'] = [12, 16, 18, 11, 14, 24, 14, 20, 30, 12, 9, 8, 11, 14, 14].map(wch => ({ wch }));
+      ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: head.length - 1 } }];
+      const FILL: Partial<Record<Kind, string>> = { head: 'F1F5F9', prov: 'E8EEFB', rep: 'F5F3FB', total: 'E2E8F0' };
+      const COLOR: Partial<Record<Kind, string>> = { prov: '1F4FB4', rep: '4C1D95' };
+      aoa.forEach((row, ri) => {
+        const kind = kinds[ri];
+        for (let c = 0; c < head.length; c++) {
+          const ref = XLSX.utils.encode_cell({ r: ri, c });
+          if (!ws[ref]) { if (kind === 'title') continue; ws[ref] = { t: 's', v: '' }; }
+          ws[ref].s = {
+            font: { bold: kind !== 'line', sz: kind === 'title' ? 14 : 11, ...(COLOR[kind] && c <= 2 ? { color: { rgb: COLOR[kind] } } : {}) },
+            ...(FILL[kind] ? { fill: { patternType: 'solid', fgColor: { rgb: FILL[kind] } } } : {}),
+            alignment: { horizontal: NUM_COLS.includes(c) ? 'left' : 'right', vertical: 'center', readingOrder: 2 },
+            ...(kind === 'title' ? {} : { border: borders }),
+          };
+          if (NUM_COLS.includes(c) && typeof row[c] === 'number') ws[ref].z = '#,##0';
+        }
+      });
+
+      // ملخص: محافظة ← مندوب بمجموعه
+      const s2: any[][] = [['المحافظة', 'التيم ليدر', 'المندوب', 'الطلبيات', 'السطور', 'الكمية', `القيمة (${cur})`]];
+      const strongRows = new Set<number>([0]);
+      for (const g of groups) {
+        for (const rp of g.reps) s2.push([g.province, g.leader, rp.repName, rp.sum.orders.size, rp.lines.length, rp.sum.qty, toNum(rp.sum.usd)]);
+        strongRows.add(s2.length);
+        s2.push([`مجموع ${g.province}`, g.leader, `${g.reps.length} مندوب`, g.sum.orders.size, g.reps.reduce((a, x) => a + x.lines.length, 0), g.sum.qty, toNum(g.sum.usd)]);
+      }
+      strongRows.add(s2.length);
+      s2.push(['المجموع الكلي', '', `${groups.length} محافظة`, total.orders.size, shown.length, total.qty, toNum(total.usd)]);
+      const ws2 = XLSX.utils.aoa_to_sheet(s2);
+      ws2['!cols'] = [18, 16, 20, 10, 10, 10, 16].map(wch => ({ wch }));
+      s2.forEach((row, ri) => {
+        const strong = strongRows.has(ri);
+        for (let c = 0; c < 7; c++) {
+          const ref = XLSX.utils.encode_cell({ r: ri, c });
+          if (!ws2[ref]) ws2[ref] = { t: 's', v: '' };
+          ws2[ref].s = {
+            font: { bold: strong },
+            ...(strong ? { fill: { patternType: 'solid', fgColor: { rgb: ri === 0 ? 'F1F5F9' : 'E8EEFB' } } } : {}),
+            alignment: { horizontal: c >= 3 ? 'left' : 'right', readingOrder: 2 }, border: borders,
+          };
+          if (c >= 3 && typeof row[c] === 'number') ws2[ref].z = '#,##0';
+        }
+      });
+
+      const wb = XLSX.utils.book_new();
+      (wb as any).Workbook = { Views: [{ RTL: true }] };
+      XLSX.utils.book_append_sheet(wb, ws, 'السطور');
+      XLSX.utils.book_append_sheet(wb, ws2, 'الملخص');
+      XLSX.writeFile(wb, `${fileBase}.xlsx`);
+    } catch (e: any) { alert(e?.message || 'تعذّر تصدير الإكسل'); }
+    finally { setBusy(''); }
+  };
+
+  // ── صورة: الجدول كما يظهر (المطوي يبقى مطوياً) مع عنوان الفترة والفلاتر ──
+  const exportImage = async () => {
+    const src = tableRef.current?.querySelector('table');
+    if (busy || !src) return;
+    setBusy('png');
+    const wrap = document.createElement('div');
+    wrap.setAttribute('dir', 'rtl');
+    wrap.style.cssText = `position:fixed;top:0;left:-99999px;background:#fff;padding:16px;font-family:Arial,Tahoma,sans-serif;width:${src.scrollWidth + 32}px;box-sizing:border-box;`;
+    const title = document.createElement('div');
+    title.style.cssText = 'display:flex;justify-content:space-between;align-items:flex-end;gap:16px;margin-bottom:10px;color:#0f172a;';
+    const left = document.createElement('div');
+    const t1 = document.createElement('div');
+    t1.style.cssText = 'font-size:18px;font-weight:900;';
+    t1.textContent = `لكوديشن كل المحافظات — ${period}`;
+    const t2 = document.createElement('div');
+    t2.style.cssText = 'font-size:12.5px;color:#64748b;margin-top:2px;';
+    t2.textContent = filterDesc || 'كل المحافظات والمندوبين والايتمات';
+    left.append(t1, t2);
+    const stats = document.createElement('div');
+    stats.style.cssText = 'font-size:13px;font-weight:700;color:#334155;';
+    stats.textContent = `${nf(groups.length)} محافظة · ${nf(total.orders.size)} طلبية · ${nf(shown.length)} سطر · ${fmtVal(total.usd)} ${currencyLabel}`;
+    title.append(left, stats);
+    wrap.appendChild(title);
+    const clone = src.cloneNode(true) as HTMLElement;
+    clone.querySelectorAll('th').forEach(el => { (el as HTMLElement).style.position = 'static'; });
+    wrap.appendChild(clone);
+    document.body.appendChild(wrap);
+    try {
+      // حدّ ارتفاع الكانفس في المتصفحات ~32 ألف بكسل: نصغّر الدقة للجداول الطويلة
+      const scale = Math.min(2, 30000 / wrap.offsetHeight);
+      if (scale < 0.6) throw new Error('النتائج أطول من أن تُحفظ صورةً واحدة — اطوِ بعض المحافظات/المندوبين أو اختر فلتراً ثم أعد المحاولة (أو صدّر إكسل).');
+      const html2canvas = (await import('html2canvas')).default;
+      const canvas = await html2canvas(wrap, { backgroundColor: '#ffffff', scale, useCORS: true, logging: false, width: wrap.offsetWidth, windowWidth: wrap.offsetWidth });
+      const blob: Blob | null = await new Promise(res => canvas.toBlob(b => res(b), 'image/png'));
+      if (!blob) throw new Error('تعذّر إنشاء الصورة');
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `${fileBase}.png`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    } catch (e: any) { alert(e?.message || 'تعذّر حفظ الصورة'); }
+    finally { wrap.remove(); setBusy(''); }
+  };
+
   const th: React.CSSProperties = { padding: '8px 8px', fontSize: 12, fontWeight: 800, color: '#334155', background: '#f1f5f9', borderBottom: '1px solid #cbd5e1', textAlign: 'right', whiteSpace: 'nowrap', position: 'sticky', top: 0, zIndex: 2 };
   const td: React.CSSProperties = { padding: '6px 8px', fontSize: 12.5, color: '#0f172a', borderBottom: '1px solid #eef2f7', whiteSpace: 'nowrap' };
   const num: React.CSSProperties = { ...td, textAlign: 'left', direction: 'ltr', fontVariantNumeric: 'tabular-nums' };
@@ -172,9 +313,17 @@ export default function AllProvincesLiquidation({ token, fileIds, applyMonth, fm
             <button type="button" onClick={() => setCollapsed(anyOpen ? new Set(allKeys) : new Set())}
               style={{ border: '1px solid #cbd5e1', background: '#fff', borderRadius: 999, padding: '5px 12px', fontSize: 12, fontWeight: 700, color: '#475569', cursor: 'pointer' }}>{anyOpen ? 'طيّ الكل' : 'فتح الكل'}</button>
           )}
+          <button type="button" onClick={exportExcel} disabled={!!busy || loading || !shown.length} title="كل السطور المعروضة بعد الفلاتر (مع المطوية) + ورقة ملخص لكل مندوب"
+            style={{ border: '1px solid #86efac', background: '#f0fdf4', color: '#15803d', borderRadius: 999, padding: '5px 12px', fontSize: 12, fontWeight: 800, cursor: busy || !shown.length ? 'default' : 'pointer', opacity: busy && busy !== 'xlsx' ? 0.5 : 1, whiteSpace: 'nowrap' }}>
+            {busy === 'xlsx' ? 'جاري التصدير…' : '⬇ إكسل'}
+          </button>
+          <button type="button" onClick={exportImage} disabled={!!busy || loading || !shown.length} title="صورة PNG للجدول كما يظهر الآن (المطوي يبقى مطوياً)"
+            style={{ border: '1px solid #c4b5fd', background: '#f5f3ff', color: '#6d28d9', borderRadius: 999, padding: '5px 12px', fontSize: 12, fontWeight: 800, cursor: busy || !shown.length ? 'default' : 'pointer', opacity: busy && busy !== 'png' ? 0.5 : 1, whiteSpace: 'nowrap' }}>
+            {busy === 'png' ? 'جاري الحفظ…' : '🖼 صورة'}
+          </button>
         </div>
 
-        <div style={{ flex: 1, overflow: 'auto', padding: '0 12px 12px' }}>
+        <div ref={tableRef} style={{ flex: 1, overflow: 'auto', padding: '0 12px 12px' }}>
           {loading && <div style={{ color: '#64748b', padding: 24, textAlign: 'center' }}>جاري التحميل…</div>}
           {err && <div style={{ color: '#be123c', padding: 12 }}>{err}</div>}
           {!loading && !err && shown.length === 0 && (
