@@ -52,7 +52,7 @@ interface Draft {
   repOptions?: RepOpt[] | null;
   date?: string; invoiceNumber?: string;
   // تكرار مع ملف اللكوديشن/ميركاتو (فُحص عند ظهور البطاقة): مستواه ووصف المحفوظ سابقاً
-  dupChecked?: boolean; liqDup?: { level: string; text: string } | null;
+  dupChecked?: boolean; liqDup?: { level: string; text: string; match?: DupMatch } | null;
   key: string; source: string; sourceText: string; sender: string | null; mentions: string[]; readBy: string;
   pharmacyName: string; areaName: string; warehouseId: number | null; warehouseName: string; backupWarehouseIds: number[];
   mentionedWarehouses: MentionedWh[];
@@ -86,6 +86,36 @@ type Mode = 'liq' | 'wh';
 
 /** قائمة خانة المندوب: auto = العلميون + المسوقون مع الاختيار بالمنطقة؛ mkt = المسوقون فقط (يدوي)؛ sci = العلميون فقط. */
 type RepKind = 'auto' | 'mkt' | 'sci';
+/** الطلبية المحفوظة المطابِقة كما يصفها /api/sales/check-duplicates (describeMatch). */
+type DupMatch = {
+  inBatch?: boolean; date?: string; savedAt?: string; pharmacy?: string; area?: string; warehouse?: string;
+  rep?: string; source?: string; fileName?: string; mercato?: boolean; invoiceNumber?: string;
+  items?: { name: string; qty: number; bonus?: number }[];
+};
+
+/** شريط أفقي مختصر بتفاصيل الطلبية المحفوظة المكررة — تحت تنبيه التكرار. */
+function DupMatchStrip({ m }: { m: DupMatch }) {
+  const savedAt = m.savedAt ? String(m.savedAt).slice(0, 16).replace('T', ' ') : '';
+  const fields: [string, string | undefined][] = [
+    ['التاريخ', m.date], ['الصيدلية', m.pharmacy], ['المنطقة', m.area], ['المذخر', m.warehouse],
+    ['المندوب', m.rep], ['المصدر', m.source], ['رقم', m.invoiceNumber],
+    ['الملف', m.mercato ? m.fileName : undefined], ['حُفظت', savedAt],
+  ];
+  return (
+    <div className="vi-dupx" title="الطلبية المحفوظة سابقاً">
+      <span className="vi-dupx__tag">المحفوظة:</span>
+      {fields.filter(([, v]) => v).map(([k, v]) => (
+        <span key={k} className="vi-dupx__f"><i>{k}</i>{v}</span>
+      ))}
+      {m.items?.map((it, i) => (
+        <span key={`it${i}`} className="vi-dupx__it">
+          <b dir="auto">{it.name || '—'}</b> × {it.qty}{it.bonus ? ` + ${it.bonus}` : ''}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 const REP_KIND_KEY = 'vi-rep-kind';
 const REP_KIND_NEXT: Record<RepKind, RepKind> = { auto: 'mkt', mkt: 'sci', sci: 'auto' };
 const REP_KIND_LABEL: Record<RepKind, string> = { auto: 'تلقائي', mkt: 'مسوقين', sci: 'علميين' };
@@ -763,7 +793,7 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
     return j.data as T;
   };
 
-  type DupGroup = { group: string; level: string; reasons?: string[]; match?: { inBatch?: boolean; date?: string; savedAt?: string; pharmacy?: string; warehouse?: string; source?: string; fileName?: string; mercato?: boolean } };
+  type DupGroup = { group: string; level: string; reasons?: string[]; match?: DupMatch };
   const dupBody = (list: Draft[]) => ({
     rows: list.flatMap(d => (liqRows(d) as any[]).map(r => ({ ...r, group: d.key }))),
     target: { condition: true, sourceCurrency: 'IQD' },
@@ -794,7 +824,7 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
       setDrafts(ds => ds.map(d => {
         const g = hits.find(h => h.group === d.key);
         if (!g) return d;
-        return { ...d, liqDup: { level: g.level, text: dupText(g) }, include: g.level !== 'possible' ? false : d.include };
+        return { ...d, liqDup: { level: g.level, text: dupText(g), match: g.match }, include: g.level !== 'possible' ? false : d.include };
       }));
     }).catch(() => { /* الفحص تنبيه فقط */ });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -858,7 +888,7 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
           `⚠️ ${hits.length} طلبية تشبه مبيعاً محفوظاً سابقاً — حفظها مرة ثانية يضاعف المبيع:\n${lines.join('\n')}\n\n`
           + 'موافق = احفظ رغم ذلك\nإلغاء = ارجع (ألغِ تحديد المكررة)');
         if (!ok) {
-          for (const g of hits) patch(g.group, { state: 'error', result: 'محفوظة سابقاً — ألغِ تحديدها أو احفظ رغم التكرار', liqDup: { level: g.level, text: dupText(g) } });
+          for (const g of hits) patch(g.group, { state: 'error', result: 'محفوظة سابقاً — ألغِ تحديدها أو احفظ رغم التكرار', liqDup: { level: g.level, text: dupText(g), match: g.match } });
           return;
         }
       }
@@ -1255,6 +1285,7 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
                     {mode === 'liq' && d.liqDup && !locked && (
                       <div className="vi-warn vi-warn--dup">⚠️ {d.liqDup.level === 'possible' ? 'ربما محفوظة سابقاً' : 'محفوظة سابقاً'} {d.liqDup.text}{d.liqDup.level !== 'possible' ? ' — أُلغي تحديدها؛ حدّدها إن كانت طلبية جديدة' : ''}</div>
                     )}
+                    {mode === 'liq' && d.liqDup?.match && !d.liqDup.match.inBatch && !locked && <DupMatchStrip m={d.liqDup.match} />}
                     {d.warnings.length > 0 && !locked && <div className="vi-warn">⚠️ {d.warnings.join(' · ')}</div>}
                     {d.result && (
                       <div className={`vi-result vi-result--${d.state}`}>

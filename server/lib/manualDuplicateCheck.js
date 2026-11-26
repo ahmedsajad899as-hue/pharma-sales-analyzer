@@ -266,6 +266,7 @@ async function loadSavedOrders(files, dateOr, take = 30000) {
       saleId: s.id, itemId: s.itemId, name: itemName,
       keys: new Set([normalizeItemKey(itemName), raw['اسم المادة بالمكتب'] ? normalizeItemKey(raw['اسم المادة بالمكتب']) : null].filter(Boolean)),
       qty: Number(s.quantity) || 0,
+      bonus: Number(raw.bonus) || Number(raw[Object.keys(raw).find(k => k.includes('بونص'))]) || 0,
       company: compKey(raw.company || raw['الصنف']),
     });
   }
@@ -279,6 +280,8 @@ const describeMatch = (ex) => ({
   invoiceNumber: ex.rawInvoice, date: fmtDay(ex.day), savedAt: ex.savedAt,
   pharmacy: ex.pharmacyName, area: ex.areaName, warehouse: ex.warehouse, rep: ex.rep, source: ex.source,
   itemCount: ex.items.length,
+  // أصناف الطلبية المحفوظة (مختصرة) — تُعرض تحت التنبيه ليقارنها المراجِع
+  items: ex.items.slice(0, 30).map(it => ({ name: it.name, qty: it.qty, bonus: it.bonus || 0 })),
 });
 
 /**
