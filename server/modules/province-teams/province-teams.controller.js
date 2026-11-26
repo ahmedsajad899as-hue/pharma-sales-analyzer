@@ -170,6 +170,92 @@ export async function repLines(req, res, next) {
   } catch (e) { next(e); }
 }
 
+// ── GET /api/province-teams/all-lines?month=&fileIds=&day=YYYY-MM-DD ───────────
+// لكوديشن كل المحافظات سطراً سطراً (زر «لكوديشن كل المحافظات» في «مندوبين المحافظات»):
+// نفس سطور rep-lines لكل مندوب علمي يظهر في جدول الأسماء — نفس شروط /directory (مقعد مدير
+// الشركة، ايتماته، المسوقون خارجاً، العلمي تحت قائد محافظته فقط، بلا بغداد) — فمجموع كل
+// مندوب = رقم «اللكوديشن» أمامه. day = يوم واحد (يتجاوز month). القيم بالدولار.
+export async function allLines(req, res, next) {
+  try {
+    const viewer = await loadViewer(req.user);
+    const day = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.day ?? '')) ? String(req.query.day) : null;
+    const month = day ? day.slice(0, 7) : (String(req.query.month ?? '').trim() || 'all');
+    const norm = (x) => String(x ?? '').trim().replace(/[أإآ]/g, 'ا').replace(/ى/g, 'ي').replace(/ة/g, 'ه').replace(/\s+/g, ' ');
+    const [allTeams, files] = await Promise.all([
+      structure.loadVisibleTeams(viewer),
+      resolveCoverageFiles(viewer, req.query.fileIds),
+    ]);
+    const teams = allTeams.filter(t => norm(t.provinceName) !== norm('بغداد'));
+
+    const allowed = viewer.mode === 'company' ? await resolveEffectiveItemIds(viewer.id) : null;
+    const allowedBase = allowed ? new Set(allowed) : null;
+    const seat = await loadManagerSeat(viewer.id);
+    const sharedScopes = seat ? (await loadSharedRepScopes(viewer.id)).byUser : new Map();
+    const allowedFor = (repUserId) => sharedScopes.get(repUserId) ?? allowedBase;
+    const officeSeats = seat ? (await loadSeatManagers([seat.officeId])).filter(s => s.officeId === seat.officeId) : [];
+    const explicit = (a) => ({ companyId: a.companyId, allItems: a.allItems, itemIds: a.explicitItemIds });
+    const repInViewerSeat = (t, a) => repSeatIds(
+      t.allAssignments.filter(o => o.repUserId === a.repUserId).map(explicit), a.repManagerIds, officeSeats,
+    ).includes(seat.userId);
+
+    const repIds = [...new Set(teams.flatMap(t => t.assignments.map(a => a.repUserId)))];
+    // المسوقون (repKind pharmacy) لا لكوديشن لهم هنا
+    const marketerIds = new Set();
+    if (repIds.length) {
+      const [users, repRows] = await Promise.all([
+        prisma.user.findMany({ where: { id: { in: repIds } }, select: { id: true, linkedRepId: true } }),
+        prisma.scientificRepresentative.findMany({ where: { userId: { in: repIds } }, select: { id: true, userId: true } }),
+      ]);
+      const link = new Map(repRows.map(r => [r.userId, r.id]));
+      for (const u of users) if (u.linkedRepId && !link.has(u.id)) link.set(u.id, u.linkedRepId);
+      const kinds = await prisma.scientificRepresentative.findMany({ where: { id: { in: [...new Set(link.values())] } }, select: { id: true, repKind: true } });
+      const kindOf = new Map(kinds.map(k => [k.id, k.repKind]));
+      for (const [u, r] of link) if (kindOf.get(r) === PHARMACY_KIND) marketerIds.add(u);
+    }
+
+    // `${محافظة}|${حساب}` → { المندوب، قائده، مجموعة ايتماته المسموحة }
+    const shown = new Map();
+    const repAllowedCache = new Map();
+    for (const t of teams) {
+      for (const a of t.assignments) {
+        if (marketerIds.has(a.repUserId)) continue;
+        if (seat && !(assignmentFillsSeat(explicit(a), seat) && repInViewerSeat(t, a))) continue;
+        const allowedSet = allowedFor(a.repUserId);
+        if (allowedSet) {
+          // مثل /directory: مندوب لا يعمل على أي ايتم من ايتمات المدير (وقائمة حسابه) لا يظهر له
+          if (!repAllowedCache.has(a.repUserId)) {
+            const ids = await resolveEffectiveItemIds(a.repUserId);
+            repAllowedCache.set(a.repUserId, ids ? new Set(ids) : null);
+          }
+          const repSet = repAllowedCache.get(a.repUserId);
+          if (!a.itemIds.some(id => allowedSet.has(id) && (!repSet || repSet.has(id)))) continue;
+        }
+        const underLeader = t.leaderUserId == null || t.assignments.some(x => x.repUserId === a.repUserId && (x.repManagerIds ?? []).includes(t.leaderUserId));
+        if (!underLeader) continue;
+        const k = `${t.provinceName}|${a.repUserId}`;
+        if (!shown.has(k)) shown.set(k, { repName: a.repName, leaderName: t.leaderName ?? '', allowedSet });
+      }
+    }
+
+    const rows = [];
+    await loadTeamLiquidation(repIds, files, month, viewer.id, (provinceName, userId, line) => {
+      const s = shown.get(`${provinceName}|${userId}`);
+      if (!s) return;
+      if (s.allowedSet && !s.allowedSet.has(line.itemId)) return;
+      if (day && line.date !== day) return;
+      rows.push({ ...line, province: provinceName, repUserId: userId, repName: s.repName, leaderName: s.leaderName, usd: +line.usd.toFixed(4) });
+    });
+    const missing = [...new Set(rows.filter(r => !r.company && r.itemId).map(r => r.itemId))];
+    if (missing.length) {
+      const items = await prisma.item.findMany({ where: { id: { in: missing } }, select: { id: true, company: { select: { name: true } }, scientificCompany: { select: { name: true } } } });
+      const co = new Map(items.map(i => [i.id, i.company?.name || i.scientificCompany?.name || '']));
+      for (const r of rows) if (!r.company && r.itemId) r.company = co.get(r.itemId) || '';
+    }
+    rows.sort((a, b) => (b.date || '').localeCompare(a.date || '') || a.pharmacy.localeCompare(b.pharmacy, 'ar'));
+    res.json({ success: true, month, day, files: { currency: files.currency, rate: files.rate }, rows });
+  } catch (e) { next(e); }
+}
+
 // ── GET /api/province-teams/directory ──────────────────────────────────────
 // دليل مبسّط: محافظة ← تيم ليدر ← مندوبون ← ايتمات (كمية + قيمة) لزر «الفرق» في خريطة المحافظات.
 // مدير الشركة: مندوبو شركاته فقط، والايتمات المقيَّدة بقائمته (UserItemAssignment) — مندوب لا يعمل

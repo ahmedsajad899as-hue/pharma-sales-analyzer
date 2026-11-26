@@ -10,6 +10,7 @@ import RepSelectOptions, { type GroupableRep, groupRepsByTeam } from '../compone
 import MultiPickDropdown from '../components/MultiPickDropdown';
 import { sendEngagementPing } from '../lib/engagementPing';
 import IraqRepsMap from '../components/IraqRepsMap';
+import AllProvincesLiquidation from '../components/AllProvincesLiquidation';
 import WarehouseGapImportModal from '../components/WarehouseGapImportModal';
 import MonthChips, { useSalesMonths, monthDateRange, MONTH_CUSTOM } from '../components/MonthChips';
 
@@ -1114,6 +1115,8 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
   // كوديشن المحافظات من إكسل ← ملف الكوديشن، ويُقارَن بمبيع كل محافظة في الخريطة
   const canProvCondition = hasFeature('province_condition_import') && user?.role !== 'scientific_rep';
   const [showProvCondition, setShowProvCondition] = useState(false);
+  // «لكوديشن كل المحافظات» سطراً سطراً (زر بجانب العملة)
+  const [showAllProvLiq, setShowAllProvLiq] = useState(false);
   const [provCondRev, setProvCondRev] = useState(0);
   const [provCondMsg, setProvCondMsg] = useState('');
   // اسم ضُغط في عرض أسماء المحافظات: تقرير المندوب نفسه يظهر تحت الجدول داخل التبويب.
@@ -4734,6 +4737,13 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
             )}
             <MonthChips months={monthsState.months} undatedCount={monthsState.undatedCount} value={selMonth} onChange={monthsState.setMonth} loading={monthsState.loading} />
             <span style={{ flex: 1 }} />
+            {provLiquidation && (
+              <button type="button" onClick={() => setShowAllProvLiq(true)}
+                title="كل سطور لكوديشن المحافظات: محافظة ← مندوب ← طلبياته — لكل الأيام أو اليوم فقط، مع فلتر محافظة / مندوب / ايتم"
+                style={{ border: '1px solid #0f766e', background: '#0f766e', color: '#fff', borderRadius: 999, padding: '5px 14px', fontSize: 12.5, fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                🧾 لكوديشن كل المحافظات
+              </button>
+            )}
             <div style={{ display: 'inline-flex', border: '1px solid #cbd5e1', borderRadius: 999, overflow: 'hidden', background: '#fff' }}>
               {(['IQD', 'USD'] as const).map(c => (
                 <button key={c} type="button" onClick={() => setFileCurrencyMode(c)} style={{ padding: '5px 14px', border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 700, background: fileCurrencyMode === c ? '#0f172a' : 'transparent', color: fileCurrencyMode === c ? '#fff' : '#475569' }}>{c === 'IQD' ? 'د.ع' : '$'}</button>
@@ -4764,6 +4774,10 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
               <button type="button" onClick={() => setProvRepOpen(false)}
                 style={{ border: '1px solid #cbd5e1', background: '#fff', borderRadius: 999, padding: '4px 12px', fontSize: 12, fontWeight: 700, color: '#475569', cursor: 'pointer' }}>إغلاق التقرير</button>
             </div>
+          )}
+          {showAllProvLiq && (
+            <AllProvincesLiquidation token={token} fileIds={activeFileIds} applyMonth={applyMonth} fmtVal={fmtVal}
+              currencyLabel={fileCurrencyMode === 'USD' ? '$' : 'د.ع'} onClose={() => setShowAllProvLiq(false)} />
           )}
           {showProvCondition && token && (
             <WarehouseGapImportModal token={token} provinceMode
