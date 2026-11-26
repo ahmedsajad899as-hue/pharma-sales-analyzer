@@ -1129,7 +1129,7 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
         style={{
           // opacity: اسم بلا تقرير يبقى واضحاً، و button:disabled في App.css كان يبهته
           background: 'none', border: 'none', padding: '0 1px', opacity: 1, cursor: clickable ? 'pointer' : 'default', fontSize: leader ? 14.5 : 12.5, lineHeight: 1.5,
-          color: !isActive ? '#94a3b8' : leader ? '#1f4fb4' : on ? '#0f172a' : '#334155', fontWeight: leader ? 800 : on ? 700 : 500,
+          color: !isActive ? '#94a3b8' : leader ? '#1f4fb4' : on ? '#0f172a' : '#334155', fontWeight: leader ? 800 : on ? 700 : isMobile ? 600 : 500,
           textDecoration: on ? 'underline' : 'none', textUnderlineOffset: 3, whiteSpace: 'nowrap',
         }}>
         {label}{isActive ? '' : ' (غير نشط)'}
@@ -1142,7 +1142,8 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
     const showCompany = !marketers;
     const colSpan = 3 + (hasCond ? 1 : 0) + (showCompany ? 1 : 0);
     const th: React.CSSProperties = { ...tableTh, padding: '5px 8px', fontSize: 12 };
-    const td: React.CSSProperties = { ...tableTd, padding: '2px 8px', fontSize: 12.5, borderBottom: 'none' };
+    // الهاتف: حشو أصغر وخط أوضح (الجدول يُصغَّر ليلائم الشاشة، فكل بكسل عرض يكبّر الخط)
+    const td: React.CSSProperties = { ...tableTd, padding: isMobile ? '2px 4px' : '2px 8px', fontSize: 12.5, borderBottom: 'none', ...(isMobile ? { fontWeight: 600 } : {}) };
     // الأرقام بمحاذاة خاناتها: الآحاد فوق الآحاد على طول العمود
     const num: React.CSSProperties = { ...td, textAlign: 'right', direction: 'ltr', fontVariantNumeric: 'tabular-nums', width: '16%' };
     const lead: React.CSSProperties = { padding: '4px 8px', fontSize: 13.5, borderBottom: 'none', borderTop: '1px solid #cbd5e1' };
@@ -1180,15 +1181,20 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
                   return (
                     <React.Fragment key={k}>
                       <tr onClick={marketersOnly ? undefined : () => { setSel(c.name); setOpenProv(open ? null : k); }} style={{ cursor: marketersOnly ? 'default' : 'pointer', background: rowBg }}>
-                        <td style={{ ...lead, whiteSpace: 'nowrap', width: 1 }}>
+                        {/* الهاتف: خلية القائد تمتد فوق خانتي المندوبين والشركة الفارغتين، فلا يتّسع العمود
+                            الأول لاسمه واسم المحافظة ويكبر خط الجدول كله بعد ملاءمة الشاشة */}
+                        <td colSpan={isMobile ? (showCompany ? 3 : 2) : 1} style={{ ...lead, whiteSpace: 'nowrap', width: isMobile ? undefined : 1 }}>
                           {!marketersOnly && <span style={{ color: '#94a3b8', marginInlineEnd: 4, fontSize: 10 }}>{open ? '▾' : '◂'}</span>}
                           {n?.leader
                             ? <>{nameBtn(n.leader.id, n.leader.name, c.name, { leader: true })}<span style={{ fontSize: 12.5, fontWeight: 600, color: '#475569', marginInlineStart: 6 }}>{c.name}</span></>
                             : <span style={{ fontSize: 14, fontWeight: 800, color: '#334155' }}>{c.name}</span>}
+                          {isMobile && !n?.reps.length && <span style={{ fontSize: 11.5, color: '#64748b', marginInlineStart: 8 }}>لا يوجد {repWord}</span>}
                         </td>
-                        <td colSpan={showCompany ? 2 : 1} style={lead}>
-                          {!n?.reps.length && <span style={{ fontSize: 11.5, color: '#64748b' }}>لا يوجد {repWord}</span>}
-                        </td>
+                        {!isMobile && (
+                          <td colSpan={showCompany ? 2 : 1} style={lead}>
+                            {!n?.reps.length && <span style={{ fontSize: 11.5, color: '#64748b' }}>لا يوجد {repWord}</span>}
+                          </td>
+                        )}
                         <td style={{ ...num, ...lead, fontWeight: 800, color: valColor(c.total) ?? '#111827' }}>{fmtVal(c.total)}</td>
                         {hasCond && (
                           <td style={{ ...num, ...lead, fontWeight: 800, color: valColor(c.cond) ?? '#111827' }}>

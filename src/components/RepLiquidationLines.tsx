@@ -72,7 +72,7 @@ export default function RepLiquidationLines({ token, fileIds, applyMonth, fmtVal
 
   const th: React.CSSProperties = { padding: '8px 8px', fontSize: 12, fontWeight: 800, color: '#334155', background: '#f1f5f9', borderBottom: '1px solid #cbd5e1', textAlign: 'right', whiteSpace: isMobile ? 'normal' : 'nowrap', position: 'sticky', top: 0, zIndex: 1 };
   // الهاتف: النص يلتف والحشو أصغر كي يبقى الخط أكبر حين يُصغَّر الجدول ليلائم الشاشة
-  const td: React.CSSProperties = { padding: isMobile ? '5px 4px' : '6px 8px', fontSize: 12.5, color: '#0f172a', borderBottom: '1px solid #eef2f7', whiteSpace: isMobile ? 'normal' : 'nowrap' };
+  const td: React.CSSProperties = { padding: isMobile ? '5px 4px' : '6px 8px', fontSize: 12.5, color: '#0f172a', borderBottom: '1px solid #eef2f7', whiteSpace: isMobile ? 'normal' : 'nowrap', ...(isMobile ? { fontWeight: 600 } : {}) };
   const num: React.CSSProperties = { ...td, textAlign: 'left', direction: 'ltr', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' };
   const dash = <span style={{ color: '#cbd5e1' }}>—</span>;
 
