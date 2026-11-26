@@ -40,7 +40,8 @@
 
 /* ── بطاقة الطلبية ── */
 .vi-card { border: 1px solid var(--c-border); border-radius: 12px; background: var(--c-surface); overflow: hidden; flex-shrink: 0; }
-.vi-card.is-off { opacity: .5; }
+/* الملغاة باهتة — عدا تفاصيل الطلبية المكررة لتبقى مقروءة */
+.vi-card.is-off .vi-card__head, .vi-card.is-off .vi-card__body > :not(.vi-dupx) { opacity: .5; }
 .vi-card.is-done { border-color: var(--c-success); }
 .vi-card.is-warn { border-color: #d97706; }
 .vi-card.is-error { border-color: var(--c-danger-border); }
@@ -129,15 +130,16 @@
 .vi-isearch__list small { font-size: 11px; color: var(--c-text-secondary); }
 
 .vi-warn--dup { color: #b91c1c !important; background: rgba(239, 68, 68, .08) !important; font-weight: 600; }
-/* تفاصيل الطلبية المحفوظة المكررة — شريط أفقي صغير تحت التنبيه */
-.vi-dupx { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; margin-top: -2px; padding: 4px 8px; border: 1px dashed rgba(239, 68, 68, .35); border-radius: 6px; font-size: 11px; color: var(--c-text-secondary); background: rgba(239, 68, 68, .03); }
-.vi-dupx__tag { font-weight: 700; color: #b91c1c; }
-.vi-dupx__f { display: inline-flex; gap: 3px; white-space: nowrap; }
-.vi-dupx__f i { font-style: normal; color: var(--c-text-tertiary, #94a3b8); }
+/* تفاصيل الطلبية المحفوظة المكررة — شريط أفقي بعرض البطاقة كاملاً تحت التنبيه */
+.vi-dupx { grid-column: 1 / -1; order: 3; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; padding: 8px 12px; border: 1px solid #fca5a5; border-inline-start: 4px solid #dc2626; border-radius: 8px; background: #fff5f5; font-size: 13px; line-height: 1.5; color: #1f2937; }
+.vi-dupx__tag { font-weight: 800; color: #b91c1c; }
+.vi-dupx__f { display: inline-flex; gap: 4px; white-space: nowrap; font-weight: 600; color: #111827; }
+.vi-dupx__f i { font-style: normal; font-weight: 500; color: #6b7280; }
 .vi-dupx__f i::after { content: ':'; }
-.vi-dupx__f + .vi-dupx__f::before { content: '·'; margin-inline-end: 3px; color: var(--c-border, #cbd5e1); }
-.vi-dupx__it { white-space: nowrap; padding: 1px 6px; border-radius: 10px; background: var(--c-bg-secondary, #f1f5f9); color: var(--c-text-primary); }
-.vi-dupx__it b { font-weight: 600; }
+.vi-dupx__it { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; padding: 3px 10px; border: 1px solid #e5e7eb; border-radius: 8px; background: #fff; color: #111827; }
+.vi-dupx__it > b { font-weight: 700; direction: ltr; }
+.vi-dupx__q { color: #6b7280; font-size: 12px; }
+.vi-dupx__q b { color: #111827; font-size: 13px; font-weight: 700; }
 .vi-warn { font-size: 11.5px; color: #b45309; background: rgba(245, 158, 11, .08); border-radius: 6px; padding: 4px 8px; }
 .vi-result { font-size: 12px; font-weight: 600; padding: 5px 8px; border-radius: 6px; }
 .vi-result--done { color: var(--c-success); background: rgba(22, 163, 74, .08); }

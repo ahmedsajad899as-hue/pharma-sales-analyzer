@@ -95,7 +95,7 @@ type DupMatch = {
 
 /** شريط أفقي مختصر بتفاصيل الطلبية المحفوظة المكررة — تحت تنبيه التكرار. */
 function DupMatchStrip({ m }: { m: DupMatch }) {
-  const savedAt = m.savedAt ? String(m.savedAt).slice(0, 16).replace('T', ' ') : '';
+  const savedAt = m.savedAt ? new Date(m.savedAt).toLocaleString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }).replace(',', '') : '';
   const fields: [string, string | undefined][] = [
     ['التاريخ', m.date], ['الصيدلية', m.pharmacy], ['المنطقة', m.area], ['المذخر', m.warehouse],
     ['المندوب', m.rep], ['المصدر', m.source], ['رقم', m.invoiceNumber],
@@ -109,7 +109,9 @@ function DupMatchStrip({ m }: { m: DupMatch }) {
       ))}
       {m.items?.map((it, i) => (
         <span key={`it${i}`} className="vi-dupx__it">
-          <b dir="auto">{it.name || '—'}</b> × {it.qty}{it.bonus ? ` + ${it.bonus}` : ''}
+          <b dir="auto">{it.name || '—'}</b>
+          <span className="vi-dupx__q">الكمية <b>{it.qty}</b></span>
+          {it.bonus ? <span className="vi-dupx__q">بونص <b>{it.bonus}</b></span> : null}
         </span>
       ))}
     </div>
@@ -1285,7 +1287,6 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
                     {mode === 'liq' && d.liqDup && !locked && (
                       <div className="vi-warn vi-warn--dup">⚠️ {d.liqDup.level === 'possible' ? 'ربما محفوظة سابقاً' : 'محفوظة سابقاً'} {d.liqDup.text}{d.liqDup.level !== 'possible' ? ' — أُلغي تحديدها؛ حدّدها إن كانت طلبية جديدة' : ''}</div>
                     )}
-                    {mode === 'liq' && d.liqDup?.match && !d.liqDup.match.inBatch && !locked && <DupMatchStrip m={d.liqDup.match} />}
                     {d.warnings.length > 0 && !locked && <div className="vi-warn">⚠️ {d.warnings.join(' · ')}</div>}
                     {d.result && (
                       <div className={`vi-result vi-result--${d.state}`}>
@@ -1293,6 +1294,8 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
                       </div>
                     )}
                   </div>
+                  {/* تفاصيل الطلبية المحفوظة بعرض البطاقة كاملاً وبلا تعتيم البطاقة الملغاة */}
+                  {mode === 'liq' && d.liqDup?.match && !d.liqDup.match.inBatch && !locked && <DupMatchStrip m={d.liqDup.match} />}
                 </div>
               </div>
             );
