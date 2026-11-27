@@ -18,6 +18,7 @@ import { createPortal } from 'react-dom';
 import { useAuth } from '../context/AuthContext';
 import { useTimeOfDay, type TimeOfDay } from '../lib/timeTheme';
 import type { PageId } from '../App';
+import DailyLiquidationModal from '../components/DailyLiquidationModal';
 
 const API = import.meta.env.VITE_API_URL || '';
 
@@ -77,6 +78,13 @@ export default function HomePage({ activeFileIds, onNavigate }: Props) {
   const [query, setQuery] = useState('');
   const [compare, setCompare] = useState(false);
   const [tabSlot, setTabSlot] = useState<HTMLDivElement | null>(null);
+  // نافذة «اللكوديشن اليومي» للمحافظات
+  const [liqOpen, setLiqOpen] = useState(false);
+  const liqBtn = (
+    <button className="btn hp-liq-btn" onClick={() => setLiqOpen(true)} title="مبيع اللكوديشن اليومي للمحافظات">
+      <span className="hp-liq-dot" />اللكوديشن اليومي
+    </button>
+  );
 
   // ── الواجهة: قائمة (الحالية) أو لوحة إعلانية — تُحفظ لكل حساب ──────────────
   const viewKey = `homeView_${user?.id ?? ''}`;
@@ -192,8 +200,9 @@ export default function HomePage({ activeFileIds, onNavigate }: Props) {
             <button className={`btn ${compare ? 'btn-primary' : ''}`} onClick={() => setCompare(v => !v)}
               title="جدول مقارنة كمية هذا الشهر بالشهر السابق">⇄ مقارنة</button>
             <button className="btn" onClick={() => setShowPicker(true)}>⭐ اختيار الايتمات</button>
+            {liqBtn}
           </>
-        ) : <><span style={{ flex: 1 }} /><div className="hp-tab-slot" ref={setTabSlot} /></>}
+        ) : <><span style={{ flex: 1 }} />{liqBtn}<div className="hp-tab-slot" ref={setTabSlot} /></>}
         <button className="btn hp-view-btn" onClick={toggleView} title="التبديل بين القائمة واللوحة الإعلانية">
           {view === 'board' ? '☰ قائمة' : '🖥️ لوحة'}
         </button>
@@ -220,7 +229,7 @@ export default function HomePage({ activeFileIds, onNavigate }: Props) {
       {/* نفس ايتمات القائمة المختارة (watched) — وليس كل الايتمات — حتى تطابق اللوحة اختيار المستخدم من «⭐ اختيار الايتمات» */}
       {months.length > 0 && data?.source !== 'mercato' && view === 'board' && (
         <Billboard items={watched} month={activeMonth} prevMonth={prevMonth} hasPrev={hasPrev}
-          fileKey={fileKey} source={data?.source} token={token} tabSlot={tabSlot} />
+          fileKey={fileKey} source={data?.source} token={token} tabSlot={tabSlot} hold={liqOpen} />
       )}
 
       {months.length > 0 && data?.source !== 'mercato' && view === 'list' && (
@@ -259,6 +268,11 @@ export default function HomePage({ activeFileIds, onNavigate }: Props) {
           )}
           {isAuto && !searching && !compare && <div className="hp-muted hp-center">تُعرض تلقائياً الأعلى مبيعاً — اضغط «⭐ اختيار الايتمات» لتحديد ايتماتك.</div>}
         </>
+      )}
+
+      {liqOpen && (
+        <DailyLiquidationModal fileKey={fileKey} month={activeMonth} token={token} imageOf={provinceImage}
+          onClose={() => setLiqOpen(false)} />
       )}
 
       {showPicker && data && (
@@ -402,13 +416,15 @@ const provinceImage = (name: string) => {
   return k ? `/provinces/${k}.webp` : null;
 };
 
-function Billboard({ items, month, prevMonth, hasPrev, fileKey, source, token, tabSlot }: {
+function Billboard({ items, month, prevMonth, hasPrev, fileKey, source, token, tabSlot, hold }: {
   /** ايتمات اللوحة = نفس ايتمات القائمة المختارة بالضبط (watched في الصفحة الأم) — لا
    *  إعادة احتساب «الأعلى مبيعاً» هنا، وإلا تختلف اللوحة عن اختيار المستخدم الصريح. */
   items: HomeItem[]; month: string; prevMonth: string; hasPrev: boolean;
   fileKey: string; source?: string; token: string | null;
   /** خانة في شريط الرأس تُنقل إليها أزرار الايتمات/المحافظات */
   tabSlot?: HTMLElement | null;
+  /** نافذة أخرى مفتوحة فوق اللوحة (اللكوديشن اليومي): يتوقف الدوران والأسهم */
+  hold?: boolean;
 }) {
   // ترتيب عرض فقط (الأعلى كمية أولاً) — بلا فلترة ولا حدّ أقصى، كي يطابق العدد اختيار المستخدم حرفياً.
   const topItems = useMemo(() =>
@@ -461,7 +477,7 @@ function Billboard({ items, month, prevMonth, hasPrev, fileKey, source, token, t
 
       {board === 'items' && <section className="bb-section">
         {topItems.length === 0 ? <div className="hp-muted hp-center">لا يوجد مبيع في هذا الشهر.</div> : (
-          <Coverflow paused={!!detail} count={topItems.length} variant="item"
+          <Coverflow paused={!!detail || !!hold} count={topItems.length} variant="item"
             render={(i) => {
               const it = topItems[i];
               const img = itemImage(it.name);
@@ -496,7 +512,7 @@ function Billboard({ items, month, prevMonth, hasPrev, fileKey, source, token, t
       {board === 'prov' && <section className="bb-section">
         {!provs ? <div className="hp-muted hp-center">جاري التحميل…</div>
           : topProvs.length === 0 ? <div className="hp-muted hp-center">لا يوجد مبيع في هذا الشهر.</div> : (
-          <Coverflow paused={!!detail} count={topProvs.length} variant="prov"
+          <Coverflow paused={!!detail || !!hold} count={topProvs.length} variant="prov"
             render={(i) => {
               const pr = topProvs[i];
               const pimg = provinceImage(pr.name);
@@ -1814,6 +1830,13 @@ function HomeStyles() {
 .hp.is-board .hp-month { max-width: 150px; height: 30px; padding: 2px 10px; font-size: 12px; border-radius: 8px; }
 .hp.is-board .hp-view-btn { height: 30px; padding: 2px 10px; font-size: 12px; border-radius: 8px; }
 .hp-tab-slot { display: flex; }
+/* زر «اللكوديشن اليومي» — نقطة نابضة توحي بأنه مبيع حيّ */
+.hp-liq-btn { display: inline-flex; align-items: center; gap: 7px; font-weight: 700; white-space: nowrap; }
+.hp-liq-dot { width: 8px; height: 8px; border-radius: 50%; background: #22c55e; box-shadow: 0 0 0 0 rgba(34,197,94,.6); animation: hp-liq-pulse 1.8s ease-out infinite; }
+@keyframes hp-liq-pulse { 70% { box-shadow: 0 0 0 7px rgba(34,197,94,0); } 100% { box-shadow: 0 0 0 0 rgba(34,197,94,0); } }
+.hp.is-board .hp-liq-btn { height: 30px; padding: 2px 12px; font-size: 12px; border-radius: 999px; background: rgba(255,255,255,.7);
+  color: var(--c-primary); border: 1px solid rgba(15,30,53,.06); backdrop-filter: blur(10px); }
+.hp.is-board .hp-liq-btn:hover { background: #fff; }
 .hp.is-board .hp-tab-slot .bb-tabs { align-self: auto; padding: 2px; gap: 2px; box-shadow: none; }
 .hp.is-board .hp-tab-slot .bb-tabs button { font-size: 11.5px; padding: 4px 10px; font-weight: 700; }
 .hp.is-board .hp-tab-slot .bb-tabs button small { font-size: 10px; }

@@ -26,6 +26,7 @@ const HEAVY_PATHS = [
   /^\/api\/province-teams\/rep-lines$/,
   /^\/api\/province-teams\/all-lines$/,
   /^\/api\/rep-sales\/province-summary$/,
+  /^\/api\/rep-sales\/daily-liquidation$/,
   /^\/api\/targets\/actuals$/,
   // condition-view: له مخبأ خاص بالمستخدم في index.js (يعرض القديم فوراً ويحدّث بالخلفية).
 ];

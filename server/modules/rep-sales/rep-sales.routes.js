@@ -19,6 +19,7 @@ const router = Router();
 
 router.get('/suggestions', ctrl.suggestions);
 router.get('/province-summary', ctrl.provinceSummary);
+router.get('/daily-liquidation', ctrl.dailyLiquidation);
 router.get('/', ctrl.listSales);
 router.post('/', invoiceUpload.single('image'), ctrl.createSale);
 router.put('/:id', ctrl.updateSale);

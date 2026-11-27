@@ -211,6 +211,97 @@ function userScopeWhere(scope, seat) {
  * @param {{month?:string, startDate?:string, endDate?:string, fileIds?:string}} q
  */
 export async function provinceSummary(reqUser, q = {}) {
+  const ctx = await loadScopedLiquidation(reqUser, q);
+  if (!ctx) return { rows: [] };
+  const { sales, mercatoRows, provinces, kindByUser, teamOfItem, allowItem } = ctx;
+  const repSaleRows = aggregateProvinceSales(sales, {
+    provinceOf: (sale) => (kindByUser.get(sale.createdById) === 'pharmacy' ? provinces.ofMarketerSale(sale) : provinces.ofSale(sale)),
+    kindOf: (id) => kindByUser.get(id) ?? 'scientific',
+    teamOfItem,
+    allowItem,
+  });
+  return {
+    rows: addMercatoToProvinces(mercatoRows, {
+      provinceOf: provinces.ofRow,
+      usdOf: saleValueUSD,
+      teamOfItem,
+      allowItem,
+    }, repSaleRows),
+  };
+}
+
+const dayKey = (d) => (d ? new Date(d).toISOString().slice(0, 10) : null);
+const isReturnRow = (row) => String(row.recordType ?? '').trim().toLowerCase() === 'return';
+
+/**
+ * مبيع اللكوديشن اليومي للمحافظات (زر «اللكوديشن اليومي» في الرئيسية): نفس عمود اللكوديشن في
+ * «مندوبين المحافظات» بعرض العلميين (provinceSummary بملفات نشطة، بلا المسوقين)، مقسوماً على الأيام
+ * ثم المحافظة ثم المندوب ثم الايتم — بالكمية فقط (الرئيسية بلا فلوس، طلب صريح). الإرجاع يُطرح.
+ * @param {{month?:string, fileIds?:string}} q
+ */
+export async function dailyLiquidation(reqUser, q = {}) {
+  const ctx = await loadScopedLiquidation(reqUser, q);
+  if (!ctx) return { days: [] };
+  const { sales, mercatoRows, ownerOfRow, provinces, kindByUser, allowItem = () => true } = ctx;
+
+  const ownerIds = mercatoRows.map(r => ownerOfRow(r)).filter(Boolean);
+  const users = await prisma.user.findMany({
+    where: { id: { in: [...new Set([...sales.map(s => s.createdById), ...ownerIds])] } },
+    select: { id: true, displayName: true, username: true },
+  });
+  const nameById = new Map(users.map(u => [u.id, userName(u)]));
+
+  // يوم → محافظة → مندوب → ايتم → كمية
+  const days = new Map();
+  const add = (day, province, rep, item, qty) => {
+    if (!day || !qty) return;
+    const prov = province || 'غير محدد';
+    if (!days.has(day)) days.set(day, new Map());
+    const provs = days.get(day);
+    if (!provs.has(prov)) provs.set(prov, new Map());
+    const reps = provs.get(prov);
+    if (!reps.has(rep)) reps.set(rep, new Map());
+    const items = reps.get(rep);
+    items.set(item, (items.get(item) ?? 0) + qty);
+  };
+
+  for (const sale of sales) {
+    if (kindByUser.get(sale.createdById) === 'pharmacy') continue; // اللكوديشن = العلميون (كعرض liqMode)
+    const province = provinces.ofSale(sale);
+    const rep = nameById.get(sale.createdById) ?? '—';
+    for (const line of sale.lines) {
+      if (!allowItem(line.itemId)) continue;
+      add(dayKey(sale.saleDate), province, rep, line.itemName || '—', Number(line.quantity) || 0);
+    }
+  }
+  for (const row of mercatoRows) {
+    if (!allowItem(row.itemId)) continue;
+    const owner = ownerOfRow(row);
+    const rep = (owner && nameById.get(owner)) || row.representative?.name || '—';
+    const qty = (Number(row.quantity) || 0) * (isReturnRow(row) ? -1 : 1);
+    add(dayKey(row.saleDate), provinces.ofRow(row), rep, row.item?.name || '—', qty);
+  }
+
+  const sum = (arr) => arr.reduce((t, x) => t + x.qty, 0);
+  const out = [...days].map(([day, provs]) => {
+    const provinceList = [...provs].map(([name, reps]) => {
+      const repList = [...reps].map(([repName, items]) => {
+        const itemList = [...items].map(([itemName, qty]) => ({ name: itemName, qty }))
+          .filter(i => i.qty).sort((a, b) => b.qty - a.qty);
+        return { name: repName, qty: sum(itemList), items: itemList };
+      }).filter(r => r.items.length).sort((a, b) => b.qty - a.qty);
+      return { name, qty: sum(repList), reps: repList };
+    }).filter(p => p.reps.length).sort((a, b) => b.qty - a.qty);
+    return { day, qty: sum(provinceList), provinces: provinceList };
+  }).filter(d => d.provinces.length).sort((a, b) => a.day.localeCompare(b.day));
+  return { days: out };
+}
+
+/**
+ * القسم المشترك بين provinceSummary وdailyLiquidation: مبيعات المندوبين المؤكدة + صفوف ميركاتو
+ * واللكوديشن ضمن نطاق المُشاهِد، بعد إسقاط المكرر وتطبيق ملكية المندوب المشترك. null = لا شيء.
+ */
+async function loadScopedLiquidation(reqUser, q) {
   const viewer = await loadViewer(reqUser);
   const seat = viewer.role === 'company_manager' ? await loadManagerSeat(viewer.id) : null;
   const scope = await orderScopeWhere(viewer);
@@ -227,7 +318,7 @@ export async function provinceSummary(reqUser, q = {}) {
         mercatoRows: [],
         ownerOfRow: () => null,
       };
-  if (!sales.length && !mercatoRows.length) return { rows: [] };
+  if (!sales.length && !mercatoRows.length) return null;
 
   // المندوب المشترك: ايتم مسند لمديريه معاً يُحسب عند مالكه فقط.
   const sharedScopes = seat ? await loadSharedRepScopes(viewer.id) : null;
@@ -256,21 +347,7 @@ export async function provinceSummary(reqUser, q = {}) {
   const allowItem = seat
     ? (id) => (ownSet ? ownSet.has(id) : companyOfItem.get(id) === seat.companyId)
     : undefined;
-
-  const repSaleRows = aggregateProvinceSales(sales, {
-    provinceOf: (sale) => (kindByUser.get(sale.createdById) === 'pharmacy' ? provinces.ofMarketerSale(sale) : provinces.ofSale(sale)),
-    kindOf: (id) => kindByUser.get(id) ?? 'scientific',
-    teamOfItem,
-    allowItem,
-  });
-  return {
-    rows: addMercatoToProvinces(mercatoRows, {
-      provinceOf: provinces.ofRow,
-      usdOf: saleValueUSD,
-      teamOfItem,
-      allowItem,
-    }, repSaleRows),
-  };
+  return { sales, mercatoRows, ownerOfRow, provinces, kindByUser, teamOfItem, allowItem };
 }
 
 // ─── الكتابة ──────────────────────────────────────────────────────────────────
