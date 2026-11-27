@@ -6,7 +6,8 @@ import { areaIdsOfProvinces, ensureLinkedRepId } from '../../lib/areaScope.js';
 import { resolveEffectiveItemIds } from '../../lib/itemScope.js';
 import { provinceMemberUserIds, hasNonProvinceSubordinates, PROVINCE_MARKETER_WHERE, PROVINCE_MARKETERS_MANAGER_WHERE, PROVINCE_MARKETER_PROVINCES_SELECT, marketerProvinceIdsOf } from '../../lib/provinceScope.js';
 import { buildRepNamePickerTree } from '../../lib/repNamePickerTree.js';
-import { loadManagerSeat, repIdsInManagerTeam, managerItemsForProvinceRep, sharedRepItemsForViewer } from '../../lib/provinceSeats.js';
+import { loadManagerSeat, repIdsInManagerTeam, managerItemsForProvinceRep, sharedRepItemsForViewer, loadSeatManagers } from '../../lib/provinceSeats.js';
+import { repTeamCompany } from '../province-teams/province-teams.rules.js';
 import { loadSplitPlansForReps } from '../../lib/provinceSplit.js';
 import { attributeLine } from '../province-teams/province-teams.rules.js';
 import { countDistinctOrders, groupOrdersByWarehouse, isWarehouseSaleRow } from '../../lib/orderKey.js';
@@ -224,6 +225,39 @@ export async function list(filters, user = null, options = {}) {
         if (r.repKind === PHARMACY_KIND) r.marketerScope = pv.has(r.userId) ? 'province' : 'baghdad';
       }
     }
+
+    // المندوب المشترك بين مديرَي مقعدين: «humanis + osel» كما في «فرق المحافظات» — حقل
+    // عرض منفصل (company يبقى للتجميع). يظهر لمدير الشركة حتى لو لم يكن فريقه ضمن ما يراه.
+    try {
+      const sciIds = repsWithIds.filter(r => r.repKind !== PHARMACY_KIND).map(r => r.userId);
+      const pas = sciIds.length ? await prisma.provinceRepAssignment.findMany({
+        where: { isActive: true, team: { isActive: true }, repUserId: { in: sciIds } },
+        select: { repUserId: true, teamId: true, companyId: true, allItems: true, company: { select: { name: true } }, items: { select: { itemId: true } }, team: { select: { officeId: true } } },
+      }) : [];
+      if (pas.length) {
+        const seats = await loadSeatManagers([...new Set(pas.map(p => p.team.officeId).filter(Boolean))]);
+        const userById = new Map(repUsers.map(u => [u.id, u]));
+        const groups = new Map();
+        for (const p of pas) {
+          const k = `${p.repUserId}:${p.teamId}`;
+          if (!groups.has(k)) groups.set(k, []);
+          groups.get(k).push(p);
+        }
+        const shared = new Map();
+        for (const list of groups.values()) {
+          const u = userById.get(list[0].repUserId);
+          if (!u || shared.has(u.id)) continue;
+          const primaryIds = new Set(u.companyAssignments.filter(a => a.isPrimary).map(a => a.companyId));
+          const name = repTeamCompany(
+            list.map(a => ({ companyId: a.companyId, companyName: a.company?.name ?? null, allItems: a.allItems, itemIds: a.items.map(i => i.itemId), isPrimary: primaryIds.has(a.companyId) })),
+            u.managersOfUser.map(m => m.managerId),
+            seats.filter(s => s.officeId === list[0].team.officeId),
+          );
+          if (name && name.includes(' + ')) shared.set(u.id, name);
+        }
+        for (const r of repsWithIds) if (shared.has(r.userId)) r.sharedCompanies = shared.get(r.userId);
+      }
+    } catch (e) { console.error('[sci-reps] shared companies failed:', e?.message); }
 
     return repsWithIds;
   }

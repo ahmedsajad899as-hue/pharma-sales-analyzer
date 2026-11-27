@@ -47,7 +47,7 @@ interface RepRow { id: number; name: string; netValue: number; netQty?: number }
 interface RepProvinceRow { provinceName: string; totalValue: number; reps: RepRow[]; leader?: { id: number; name: string } | null }
 
 interface Props {
-  reps: { id: number; company?: string | null }[];
+  reps: { id: number; company?: string | null; sharedCompanies?: string | null }[];
   token: string | null;
   fileIds: number[];
   applyMonth: (p: URLSearchParams) => void;
@@ -726,6 +726,8 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
     // المندوب المشترك «deva + osel» كما في فريقه — حتى لو ظهر في محافظة أخرى خارج فريقه
     // (سطره عندها من قائمة المندوبين بشركة واحدة).
     const sharedCo = new Map<string, string>();
+    // من قائمة المندوبين (sharedCompanies) — تشمل المندوب الذي فريقه غير ظاهر لمدير الشركة
+    for (const r of reps) if (r.sharedCompanies) sharedCo.set(`i${r.id}`, r.sharedCompanies);
     for (const t of teams) for (const r of t.reps) {
       if (!r.co || !r.co.includes(' + ')) continue;
       if (r.id != null) sharedCo.set(`i${r.id}`, r.co);
@@ -741,7 +743,7 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
       row.reps.sort((a, b) => (b.sales ?? 0) - (a.sales ?? 0) || (b.cond ?? 0) - (a.cond ?? 0));
     }
     return out;
-  }, [cells, teams, repKind, marketers, repData, companyOf]);
+  }, [cells, teams, repKind, marketers, repData, companyOf, reps]);
 
   // صفوف الجدول: محافظة فيها مبيع/لكوديشن/أسماء — ومحافظة لها فريق بلا مبيع تأتي آخراً
   const nameList = useMemo(() => {
