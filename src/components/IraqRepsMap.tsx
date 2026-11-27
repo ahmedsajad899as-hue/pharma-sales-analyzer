@@ -723,7 +723,19 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
         else row.reps.push({ key: `u${r.u}`, id: r.id, u: r.u, name: r.name, company: r.co, sales: r.all, cond: r.liq, active: r.active });
       }
     }
+    // المندوب المشترك «deva + osel» كما في فريقه — حتى لو ظهر في محافظة أخرى خارج فريقه
+    // (سطره عندها من قائمة المندوبين بشركة واحدة).
+    const sharedCo = new Map<string, string>();
+    for (const t of teams) for (const r of t.reps) {
+      if (!r.co || !r.co.includes(' + ')) continue;
+      if (r.id != null) sharedCo.set(`i${r.id}`, r.co);
+      sharedCo.set(`n${norm(r.name)}`, r.co);
+    }
     for (const row of out.values()) {
+      for (const x of row.reps) {
+        const co = (x.id != null ? sharedCo.get(`i${x.id}`) : undefined) ?? sharedCo.get(`n${norm(x.name)}`);
+        if (co) x.company = co;
+      }
       const l = row.leader;
       if (l) row.reps = row.reps.filter(x => !((l.id != null && x.id === l.id) || norm(x.name) === norm(l.name)));
       row.reps.sort((a, b) => (b.sales ?? 0) - (a.sales ?? 0) || (b.cond ?? 0) - (a.cond ?? 0));
