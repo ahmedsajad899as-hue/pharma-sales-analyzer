@@ -65,6 +65,33 @@ check('تنبيه الاكتشاف يذكر الإيقاف', [t1.includes('🚨'
 const t2 = alertText({ message: 'انتهت المهلة', suspicious: false, paused: false });
 check('تنبيه العطل العادي بلا إيقاف', [t2.includes('⚠️'), t2.includes('أوقفتُ')], [true, false]);
 
+// ── مدى طويل يتأخّر عندهم (2026-11-27): المهلة ⇒ تقسيم يوماً بيوم لا فشل السحب كله ──
+{
+  const { exportRange } = await import('../server/modules/dofied/dofied.client.js');
+  const realFetch = globalThis.fetch;
+  const calls = [];
+  let dayTimeouts = 0;
+  const timeout = () => Promise.reject(Object.assign(new Error('timeout'), { name: 'TimeoutError' }));
+  globalThis.fetch = async (_url, { body }) => {
+    const q = new URLSearchParams(body);
+    const from = q.get('sdate'), to = q.get('edate');
+    calls.push(`${from}..${to}`);
+    if (from !== to) return timeout();                                   // المدى الكامل يتأخّر
+    if (from === '2026-11-02' && dayTimeouts++ === 0) return timeout();  // تأخّر عابر ليوم واحد
+    return new Response(book([[from, 'علي', `ص ${from}`]], []), { status: 200 });
+  };
+  try {
+    const r = await exportRange({}, '2026-11-01', '2026-11-03');
+    check('المهلة ⇒ تقسيم يومي + إعادة اليوم المتأخّر', [r.taskRows, calls], [3, ['2026-11-01..2026-11-03', '2026-11-01..2026-11-01', '2026-11-02..2026-11-02', '2026-11-02..2026-11-02', '2026-11-03..2026-11-03']]);
+    calls.length = 0;
+    globalThis.fetch = async () => timeout();
+    const e = await exportRange({}, '2026-11-05', '2026-11-05').catch(x => x);
+    check('يوم واحد يتأخّر مرتين ⇒ TIMEOUT واضح بعد محاولتين', e?.code, 'TIMEOUT');
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+}
+
 if (failed) { console.log(`\n✗ فشل ${failed}`); process.exit(1); }
 console.log('\n✓ كل الاختبارات نجحت');
 process.exit(0);

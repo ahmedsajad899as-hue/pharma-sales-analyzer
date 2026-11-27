@@ -109,7 +109,10 @@ async function request(path, { method = 'GET', jar, form, referer } = {}) {
   try {
     res = await fetch(`${DOFIED_BASE}${path}`, { method, headers, body, redirect: 'manual', signal: AbortSignal.timeout(TIMEOUT_MS) });
   } catch (e) {
-    throw new DofiedError(`تعذّر الوصول لموقع دوفايد: ${e?.name === 'TimeoutError' ? 'انتهت المهلة' : e?.message}`, 'NETWORK');
+    // TIMEOUT منفصل عن NETWORK: تصدير مدى طويل يتأخّر عندهم أكثر من دقيقة (2026-11-27)
+    // فيُقسَّم يوماً بيوم بدل أن يفشل السحب كله (exportRange).
+    if (e?.name === 'TimeoutError') throw new DofiedError('تعذّر الوصول لموقع دوفايد: انتهت المهلة', 'TIMEOUT');
+    throw new DofiedError(`تعذّر الوصول لموقع دوفايد: ${e?.message}`, 'NETWORK');
   }
   if (jar) mergeCookies(jar, typeof res.headers.getSetCookie === 'function' ? res.headers.getSetCookie() : []);
   return res;
@@ -147,14 +150,32 @@ export async function exportTasks(jar, from, to) {
   throw new DofiedError(`رد غير متوقّع من تصدير دوفايد (HTTP ${res.status}): ${text.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120)}`, 'UNEXPECTED');
 }
 
-/** يصدّر المدى كاملاً، ويقسّمه يوماً بيوم إن رفضه الموقع لكثرة السجلات. */
+/** خطأ يعني «المدى ثقيل على موقعهم» لا عطلاً: رفض لكثرة السجلات، أو تأخّر أكثر من المهلة. */
+const isHeavy = (e) => e?.code === 'TOO_MANY' || e?.code === 'TIMEOUT';
+
+/** تصدير يوم واحد، مع إعادة واحدة إن انتهت المهلة (تأخّر عابر عندهم). */
+async function exportDay(jar, day) {
+  try {
+    return await exportTasks(jar, day, day);
+  } catch (e) {
+    if (e?.code !== 'TIMEOUT') throw e;
+    return exportTasks(jar, day, day);
+  }
+}
+
+/**
+ * يصدّر المدى كاملاً، ويقسّمه يوماً بيوم إن رفضه الموقع لكثرة السجلات أو تأخّر أكثر من
+ * المهلة. قبل 2026-11-27 كان التأخّر يُفشل السحب كله: موظف المكتب يسحب من أول الشهر
+ * (~27 يوماً) فينتهي أول طلب بعد 60 ثانية ثلاث مرات متتالية.
+ */
 export async function exportRange(jar, from, to) {
+  if (from === to) return mergeWorkbooks([await exportDay(jar, from)]);
   try {
     return mergeWorkbooks([await exportTasks(jar, from, to)]);
   } catch (e) {
-    if (e?.code !== 'TOO_MANY' || from === to) throw e;
+    if (!isHeavy(e)) throw e;
   }
   const parts = [];
-  for (const day of daysBetween(from, to)) parts.push(await exportTasks(jar, day, day));
+  for (const day of daysBetween(from, to)) parts.push(await exportDay(jar, day));
   return mergeWorkbooks(parts);
 }
