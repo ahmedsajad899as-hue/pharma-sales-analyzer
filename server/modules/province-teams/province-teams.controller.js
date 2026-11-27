@@ -283,13 +283,15 @@ export async function directory(req, res, next) {
     // شركة واحدة تمثل تيم المندوب. مدير الشركة لا يرى إلا مندوبي مقعده، فهي شركته. المسوق بلا تيم شركة.
     const teamCompanyOf = (t, repUserId, isMarketer) => {
       if (isMarketer) return null;
-      if (seat) return seat.companyName;
       const own = t.allAssignments.filter(a => a.repUserId === repUserId);
-      return repTeamCompany(
+      const name = repTeamCompany(
         own.map(a => ({ ...explicit(a), companyName: a.companyName, isPrimary: a.isRepPrimaryCompany })),
         own[0]?.repManagerIds ?? [],
         allSeats.filter(s => s.officeId === t.officeId),
       );
+      // مدير الشركة يرى شركته، إلا المندوب المشترك فيُعرض بكل شركاته «deva + osel» (طلب 2026-11-27).
+      if (seat) return name && name.includes(' + ') ? name : seat.companyName;
+      return name;
     };
     // ايتم مشترك مع مدير آخر لا يدخل مندوب ذلك المدير في فريق المُشاهِد.
     const repInViewerSeat = (t, a) => repSeatIds(

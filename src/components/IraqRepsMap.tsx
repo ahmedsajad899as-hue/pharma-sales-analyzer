@@ -1178,6 +1178,8 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
                   const n = nameRows.get(k);
                   const open = openProv === k;
                   const rowBg = open ? '#e8effc' : '#f4f7fd';
+                  // مدير الشركة: رقما سطر التيم ليدر هما نفس رقمي مندوبه تحته — يُخفيان (المجموع أسفل الجدول يبقى)
+                  const hideLeadNums = !!ownTeamId && !marketers && (n?.reps.length ?? 0) > 0;
                   return (
                     <React.Fragment key={k}>
                       <tr onClick={marketersOnly ? undefined : () => { setSel(c.name); setOpenProv(open ? null : k); }} style={{ cursor: marketersOnly ? 'default' : 'pointer', background: rowBg }}>
@@ -1195,10 +1197,10 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
                             {!n?.reps.length && <span style={{ fontSize: 11.5, color: '#64748b' }}>لا يوجد {repWord}</span>}
                           </td>
                         )}
-                        <td style={{ ...num, ...lead, fontWeight: 800, color: valColor(c.total) ?? '#111827' }}>{fmtVal(c.total)}</td>
+                        <td style={{ ...num, ...lead, fontWeight: 800, color: valColor(c.total) ?? '#111827' }}>{hideLeadNums ? null : fmtVal(c.total)}</td>
                         {hasCond && (
                           <td style={{ ...num, ...lead, fontWeight: 800, color: valColor(c.cond) ?? '#111827' }}>
-                            {c.cond !== 0
+                            {hideLeadNums ? null : c.cond !== 0
                               ? <>{c.total > 0 && pctTag(pctOf(c.cond, c.total))}{fmtVal(c.cond)}</>
                               : dash}
                           </td>
