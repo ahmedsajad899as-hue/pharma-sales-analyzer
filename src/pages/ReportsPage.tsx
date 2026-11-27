@@ -12,7 +12,7 @@ import { sendEngagementPing } from '../lib/engagementPing';
 import IraqRepsMap from '../components/IraqRepsMap';
 import AllProvincesLiquidation from '../components/AllProvincesLiquidation';
 import WarehouseGapImportModal from '../components/WarehouseGapImportModal';
-import { useExternalRepLinks, ExternalLinkMark, ExternalLinkLegend } from '../components/ExternalLinkMark';
+import { useExternalRepLinks, ExternalLinkMark } from '../components/ExternalLinkMark';
 import MonthChips, { useSalesMonths, monthDateRange, MONTH_CUSTOM } from '../components/MonthChips';
 
 /* Normalise Arabic area/name text so spelling variants collapse: unify alef/teh-marbuta,
@@ -4699,14 +4699,14 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
                   <div key={idx} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, paddingTop: 4, borderTop: idx ? '1px dashed #eef2f7' : 'none' }}>
                     <div style={{ minWidth: 170, flexShrink: 0 }}>
                       {ln.leader
-                        ? <button type="button" style={faint(String(ln.leader.id) === sciRepId, true)} onClick={() => pick(ln.leader!)}>{ln.leader.name}<ExternalLinkMark source="mercato" info={mercatoLinks.byId[ln.leader.id]} known={mercatoLinks.known('mercato')} /></button>
+                        ? <button type="button" style={faint(String(ln.leader.id) === sciRepId, true)} onClick={() => pick(ln.leader!)}>{ln.leader.name}<ExternalLinkMark source="mercato" info={mercatoLinks.byId[ln.leader.id]} known={mercatoLinks.known('mercato')} quiet /></button>
                         : <span style={{ fontSize: 11.5, color: '#94a3b8' }}>بلا تيم ليدر</span>}
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 1, minWidth: 0 }}>
                       {memberRows.map((row, ri) => (
                         <div key={ri} style={{ display: 'flex', flexWrap: 'wrap', gap: '0 12px' }}>
                           {row.map(m => (
-                            <button key={m.id} type="button" style={faint(String(m.id) === sciRepId)} onClick={() => pick(m)}>{m.name}<ExternalLinkMark source="mercato" info={mercatoLinks.byId[m.id]} known={mercatoLinks.known('mercato')} /></button>
+                            <button key={m.id} type="button" style={faint(String(m.id) === sciRepId)} onClick={() => pick(m)}>{m.name}<ExternalLinkMark source="mercato" info={mercatoLinks.byId[m.id]} known={mercatoLinks.known('mercato')} quiet /></button>
                           ))}
                         </div>
                       ))}
@@ -4714,7 +4714,6 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
                   </div>
                 );
               })}
-              {mercatoLinks.known('mercato') && <ExternalLinkLegend source="mercato" />}
             </div>
           );
         })()}

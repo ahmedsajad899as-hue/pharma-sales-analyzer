@@ -49,11 +49,20 @@ export function useExternalRepLinks(kind: 'userIds' | 'repIds', ids: number[], e
   return { byId: state.byId, known };
 }
 
-export function ExternalLinkMark({ source, info, known }: { source: ExtSource; info: ExtLinkInfo | null | undefined; known: boolean }) {
+export function ExternalLinkMark({ source, info, known, quiet = false }: {
+  source: ExtSource; info: ExtLinkInfo | null | undefined; known: boolean;
+  /** هادئ: لا شيء للمربوط، ونقطة حمراء صغيرة فقط لغير المربوط (صفحة المبيعات — طلب 2026-11-27) */
+  quiet?: boolean;
+}) {
   if (!known || info === undefined) return null;
   const s = info?.[source];
   const linked = !!s?.linked;
   const { letter, name } = LABEL[source];
+  if (quiet) {
+    if (linked) return null;
+    const t = `غير مربوط بأي اسم في ${name}`;
+    return <span title={t} aria-label={t} style={{ display: 'inline-block', width: 5, height: 5, borderRadius: '50%', background: '#f87171', marginInlineStart: 4, verticalAlign: 'middle', opacity: .85 }} />;
+  }
   const title = linked
     ? (s!.names.length ? `مربوط باسم في ${name}: ${s!.names.join('، ')}` : `مربوط بـ${name} (زياراته تُسحب من ${name})`)
     : `غير مربوط بأي اسم في ${name}`;
