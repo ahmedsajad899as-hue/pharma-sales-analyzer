@@ -10,6 +10,7 @@ import { sendEngagementPing, sendSearchPingDebounced } from '../lib/engagementPi
 import * as XLSX from 'xlsx';
 import { ProvinceScopeSwitch, useProvinceRepScope, useProvinceViewMode, filterByProvinceScope, hasProvinceReps, sortRepsByProvince, groupRepsByProvince } from '../components/ProvinceRepsToggle';
 import type { RepProvince } from '../components/ProvinceRepsToggle';
+import { usePageActive } from '../context/PageActiveContext';
 
 const API = import.meta.env.VITE_API_URL || '';
 
@@ -295,14 +296,25 @@ export default function DoctorsPage() {
   };
   const dofiedRunning = dofiedJob?.state === 'running';
 
+  // الملف المعلَّق قد يُنشأ والصفحة مفتوحة (سحب الماستر أدمن اليومي/«سحب الآن»، بوت
+  // تلكرام) — والصفحة تبقى مركَّبة بعد أول زيارة، فالفحص يُعاد عند العودة إليها وعند
+  // رجوع التركيز للمتصفح، لا عند التركيب فقط (2026-11-27: ملف دوفايد لم يظهر).
+  const pageActive = usePageActive();
   useEffect(() => {
-    if ((!showVisitsImport && !showDofiedPull) || isFieldRep) return;
-    fetch(`${API}/api/doctors/visits/pending-import`, { headers: H() })
-      .then(r => r.json())
-      .then(j => { if (j.success && j.data) setPendingVisitsImport(j.data); })
-      .catch(() => {});
+    if ((!showVisitsImport && !showDofiedPull) || isFieldRep || !pageActive) return;
+    let alive = true;
+    const check = () => {
+      fetch(`${API}/api/doctors/visits/pending-import`, { headers: H(), cache: 'no-store' })
+        .then(r => r.json())
+        .then(j => { if (alive && j.success) setPendingVisitsImport(j.data || null); })
+        .catch(() => {});
+    };
+    check();
+    const onVisible = () => { if (document.visibilityState === 'visible') check(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => { alive = false; document.removeEventListener('visibilitychange', onVisible); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showVisitsImport, showDofiedPull, isFieldRep]);
+  }, [showVisitsImport, showDofiedPull, isFieldRep, pageActive]);
 
   // بلا confirm هنا عمداً — كل نقطة استدعاء (الشريط أو زر المودال الداخلي) تؤكّد بنفسها أولاً.
   const cancelPendingVisitsImport = async () => {
