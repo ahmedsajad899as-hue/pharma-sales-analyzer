@@ -64,9 +64,10 @@ import WaCampaigns from './components/WaCampaigns';
 import WaGroupsPage from './pages/super-admin/WaGroupsPage';
 import WarehousesBotPage from './pages/super-admin/WarehousesBotPage';
 import DofiedPage from './pages/super-admin/DofiedPage';
+import RepExternalLinksPage from './pages/super-admin/RepExternalLinksPage';
 import OrderLearningPage from './pages/super-admin/OrderLearningPage';
 
-type Page = 'offices' | 'companies' | 'items' | 'areas' | 'users' | 'super-admins' | 'visits' | 'surveys' | 'doctor-changes' | 'area-changes' | 'telegram-links' | 'viber-links' | 'whatsapp-links' | 'wa-chats' | 'wa-campaigns' | 'wa-groups' | 'warehouses-bot' | 'dofied' | 'ai-usage' | 'order-learning';
+type Page = 'offices' | 'companies' | 'items' | 'areas' | 'users' | 'super-admins' | 'visits' | 'surveys' | 'doctor-changes' | 'area-changes' | 'telegram-links' | 'viber-links' | 'whatsapp-links' | 'wa-chats' | 'wa-campaigns' | 'wa-groups' | 'warehouses-bot' | 'dofied' | 'rep-external-links' | 'ai-usage' | 'order-learning';
 
 // لون تمييز واحد فقط للحالة النشطة (بدل لون مختلف لكل عنصر) — يهدّئ الشريط الجانبي
 // ويجعل العين تتبع "أين أنا" بدل التوهان بين تدرّجات ملوّنة متعددة.
@@ -89,6 +90,7 @@ const NAV: { id: Page; label: string; icon: string; masterOnly?: boolean }[] = [
   { id: 'wa-groups',    label: 'رقم الكروبات',  icon: '👥', masterOnly: true },
   { id: 'warehouses-bot', label: 'المذاخر والبوت', icon: '🏭', masterOnly: true },
   { id: 'dofied',       label: 'ربط دوفايد',    icon: '🔗', masterOnly: true },
+  { id: 'rep-external-links', label: 'ربط دوفايد وميركاتو', icon: '🪪', masterOnly: true },
   { id: 'ai-usage',     label: 'استهلاك الذكاء', icon: '📈', masterOnly: true },
   { id: 'order-learning', label: 'ذاكرة التصحيحات', icon: '🧠', masterOnly: true },
 ];
@@ -383,6 +385,7 @@ function SuperAdminShell() {
         {page === 'wa-groups' && <WaGroupsPage />}
         {page === 'warehouses-bot' && <WarehousesBotPage />}
         {page === 'dofied' && <DofiedPage />}
+        {page === 'rep-external-links' && <RepExternalLinksPage />}
         {page === 'order-learning' && <OrderLearningPage />}
             {page === 'ai-usage' && <AiUsagePage />}
           </div>

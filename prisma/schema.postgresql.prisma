@@ -812,6 +812,24 @@ model SciRepNameLink {
   @@map("sci_rep_name_links")
 }
 
+// أسماء المندوبين كما وردت في ملفات دوفايد (عمود task-to) — سجلّ يُملأ عند كل
+// قراءة لملف دوفايد (السحب اليومي، السحب من صفحة الكولات، الرفع اليدوي، تلكرام).
+// الغرض: معرفة أي مندوب «مربوط باسم في دوفايد» وأيّهم لا، والربط اليدوي من السوبر
+// أدمن (صفحة «ربط الأسماء الخارجية»). الربط نفسه يبقى في SciRepNameLink.
+// أسماء ميركاتو لا تُخزَّن هنا: تُقرأ مباشرة من صفوف ملفات ميركاتو.
+model ExternalRepName {
+  id          Int      @id @default(autoincrement())
+  source      String // 'dofied'
+  nameKey     String // normalizeRepName(name)
+  name        String
+  seenCount   Int      @default(1)
+  firstSeenAt DateTime @default(now())
+  lastSeenAt  DateTime @default(now())
+
+  @@unique([source, nameKey])
+  @@map("external_rep_names")
+}
+
 // مطابقة أسماء الأطباء بين ملفات الاستيراد الخارجية وسجلات Doctor الموجودة —
 // نفس فكرة SciRepNameLink أعلاه لكن لأسماء الأطباء، مع سياق إضافي (المنطقة/
 // الاختصاص/الصيدلية) يُستخدم لترجيح المطابقة عند الشك في مجرد الاسم. المفتاح

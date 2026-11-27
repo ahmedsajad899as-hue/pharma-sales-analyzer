@@ -11,6 +11,7 @@ import * as XLSX from 'xlsx';
 import { ProvinceScopeSwitch, useProvinceRepScope, useProvinceViewMode, filterByProvinceScope, hasProvinceReps, sortRepsByProvince, groupRepsByProvince } from '../components/ProvinceRepsToggle';
 import type { RepProvince } from '../components/ProvinceRepsToggle';
 import { usePageActive } from '../context/PageActiveContext';
+import { useExternalRepLinks, ExternalLinkMark, ExternalLinkLegend } from '../components/ExternalLinkMark';
 
 const API = import.meta.env.VITE_API_URL || '';
 
@@ -417,6 +418,8 @@ export default function DoctorsPage() {
   // بغداد افتراضياً؛ زر «مندوبي المحافظات» يعرضهم وحدهم. يُرسَل للخادم كـ
   // provinceScope فتُفصل أرقام «الكل» نفسها لا شرائح المندوبين فقط.
   const [onlyProvince, setOnlyProvince] = useProvinceRepScope('calls-analysis', { persist: false }); // تفتح الصفحة على بغداد دائماً
+  // علامة «مربوط بدوفايد» على شرائح المندوبين (D خضراء / حمراء مفرّغة)
+  const dofiedLinks = useExternalRepLinks('userIds', useMemo(() => managerRepsAll.map(r => r.userId), [managerRepsAll]));
   const managerReps = useMemo(() => {
     const list = filterByProvinceScope(managerRepsAll, onlyProvince);
     return onlyProvince ? sortRepsByProvince(list) : list;
@@ -2414,6 +2417,7 @@ export default function DoctorsPage() {
                         color: active ? 'var(--c-accent)' : isLeader ? 'var(--c-text-primary)' : 'var(--c-text-secondary)',
                       }}>
                         {isLeader && '★ '}{rep.name}
+                        <ExternalLinkMark source="dofied" info={dofiedLinks.byId[rep.userId]} known={dofiedLinks.known('dofied')} />
                         {/* وسم خفيف بما لا يظهر في الشريحة أعلاها: شركته في عرض المحافظة، ومحافظته في عرض الشركة */}
                         {onlyProvince && (byProvinceView ? rep.company?.name : rep.provinces?.map(p => p.name).join('، ')) && (
                           <span style={{ marginInlineStart: 6, fontSize: 10.5, fontWeight: 500, opacity: .6 }}>
@@ -2465,6 +2469,7 @@ export default function DoctorsPage() {
                   </div>
                 );
               })()}
+              {dofiedLinks.known('dofied') && <ExternalLinkLegend source="dofied" />}
             </div>
             );
           })()}

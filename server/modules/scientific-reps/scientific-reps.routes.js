@@ -31,6 +31,7 @@ router.delete('/blocked-commercials/:blockId', ctrl.removeBlockedCommercial);
 router.get('/rep-names/check',          ctrl.checkRepNames);   // ?fileIds=1,2
 router.post('/rep-names',               ctrl.saveRepNames);    // { links:[{fromName, scientificRepId|null}] }
 router.delete('/rep-names/:fromKey',    ctrl.deleteRepNameLink);
+router.get('/external-links',           ctrl.getExternalLinks); // ?repIds=&userIds= — مربوط بدوفايد/ميركاتو؟
 
 // حجب جزئي: مناطق محددة لمندوب تجاري محدد — قبل /:id
 router.get('/blocked-rep-areas',        ctrl.listBlockedRepAreas);

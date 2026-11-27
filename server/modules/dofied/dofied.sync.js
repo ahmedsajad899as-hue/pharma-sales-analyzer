@@ -19,6 +19,8 @@ import prisma from '../../lib/prisma.js';
 import { encryptPassword, decryptPassword } from '../../lib/passwordCrypto.js';
 import { extractVisitsFromExcel } from '../doctors/doctor-visits-import.js';
 import { login, exportRange, SUSPICIOUS_CODES } from './dofied.client.js';
+import XLSX from 'xlsx';
+import { recordExternalRepNames, DOFIED } from '../../lib/externalRepNames.js';
 
 const TZ = 'Asia/Baghdad';
 const FIRST_RUN_DAYS = 1; // أول سحب: أمس فقط — ما قبله رُفع يدوياً
@@ -206,6 +208,40 @@ async function runSyncInner({ trigger = 'schedule' } = {}) {
     }
     return { status, message, suspicious, paused };
   }
+}
+
+/** أسماء المندوبين (عمود task-to) من ورقة دوفايد الأولى. نقيّ. */
+export function taskToNamesFromWorkbook(buffer) {
+  const wb = XLSX.read(buffer);
+  const sheet = wb.Sheets[wb.SheetNames[0]];
+  if (!sheet) return [];
+  const rows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+  if (!rows.length) return [];
+  const col = Object.keys(rows[0]).find(h => String(h).trim().toLowerCase() === 'task-to')
+    ?? Object.keys(rows[0]).find(h => String(h).trim().toLowerCase().includes('task-to'));
+  if (!col) return [];
+  // نفس leadingSegment في استيراد الزيارات: «الاسم/ المنطقة» → «الاسم»
+  const lead = v => { const t = String(v ?? '').trim(); const m = t.match(/^(.+?)\s*[/\-–]\s*\S.*$/); return m ? m[1].trim() : t; };
+  return [...new Set(rows.map(r => lead(r[col])).filter(Boolean))];
+}
+
+/**
+ * تحديث سجلّ أسماء دوفايد فقط (لا ملف مراجعة ولا تقدّم في السحب اليومي): تصدير آخر
+ * `days` أيام وقراءة أسماء المندوبين منه — لزر «تحديث أسماء دوفايد» في السوبر أدمن.
+ */
+export function refreshDofiedRepNames({ days = 7 } = {}) {
+  return dofiedLock.run(async () => {
+    const c = await getConfig();
+    if (!c.username || !c.passwordEnc) throw Object.assign(new Error('بيانات دخول دوفايد غير محفوظة (صفحة ربط دوفايد)'), { status: 400 });
+    const n = Math.min(Math.max(Number(days) || 7, 1), 31);
+    const to = baghdadNow().date;
+    const from = addDays(to, -(n - 1));
+    const jar = await login(c.username, decryptPassword(c.passwordEnc));
+    const { buffer, taskRows } = await exportRange(jar, from, to);
+    const names = taskRows ? taskToNamesFromWorkbook(buffer) : [];
+    await recordExternalRepNames(DOFIED, names);
+    return { from, to, taskRows, names: names.length };
+  });
 }
 
 /** مؤقّت: يفحص كل 10 دقائق، ويسحب مرة واحدة يومياً بعد الساعة المختارة. */

@@ -4,6 +4,8 @@ import { getMarketersWarehouseShare } from './marketers-warehouse.js';
 import { monthToRange } from '../../lib/salesMonths.js';
 import { loadMarketersManagerScope } from '../../lib/marketersManagerScope.js';
 import { canResolveRepNames } from '../../lib/repNameResolver.js';
+import prisma from '../../lib/prisma.js';
+import { externalLinksForReps, loadExternalContext, sourceSummary } from '../../lib/externalRepNames.js';
 
 // ── شريحة الشهر ──────────────────────────────────────────────────────────────
 // الواجهة ترسل `month` (2026-09 | none | all)، ونترجمه هنا إلى نفس مدى
@@ -471,5 +473,29 @@ export async function getProvinceMap(req, res, next) {
     };
     const data = await svc.getProvinceMapForReps(repIds, applyMonth(query, req.query.month), req.user?.id ?? null);
     res.json({ success: true, data });
+  } catch (err) { next(err); }
+}
+
+// ── علامة «مربوط بدوفايد / ميركاتو» بجانب أسماء المندوبين (lib/externalRepNames.js) ──
+// GET /api/scientific-reps/external-links?repIds=1,2&userIds=5,6 — قراءة فقط، أسماء لا أرقام.
+const idList = v => String(v ?? '').split(',').map(Number).filter(n => Number.isInteger(n) && n > 0).slice(0, 2000);
+export async function getExternalLinks(req, res, next) {
+  try {
+    const repIds = idList(req.query.repIds);
+    const userIds = idList(req.query.userIds);
+    const users = userIds.length
+      ? await prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, linkedRepId: true } })
+      : [];
+    const ctx = await loadExternalContext();
+    const map = await externalLinksForReps([...repIds, ...users.map(u => u.linkedRepId).filter(Boolean)], ctx);
+    const slim = (v) => v && ({
+      dofied: { linked: v.dofied.linked, names: v.dofied.names.map(n => n.name), visits: v.dofied.visits },
+      mercato: { linked: v.mercato.linked, names: v.mercato.names.map(n => n.name) },
+    });
+    const reps = {};
+    for (const [id, v] of map) reps[id] = slim(v);
+    const byUser = {};
+    for (const u of users) byUser[u.id] = u.linkedRepId ? (reps[u.linkedRepId] ?? null) : null;
+    res.json({ success: true, data: { reps, users: byUser, sources: sourceSummary(ctx) } });
   } catch (err) { next(err); }
 }

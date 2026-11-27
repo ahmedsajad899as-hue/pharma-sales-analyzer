@@ -37,6 +37,7 @@ import { loadProvinceVisitContext, isProvinceVisitRow, markProvinceRows, prepare
 import { BAGHDAD_PROVINCE } from '../../lib/pharmacyRep.js';
 import { provinceIdsByMember } from '../../lib/provinceScope.js';
 import { ensureLinkedRepId } from '../../lib/areaScope.js';
+import { recordExternalRepNames, DOFIED } from '../../lib/externalRepNames.js';
 
 const ROLE_LABEL = {
   scientific_rep: 'مندوب', team_leader: 'تيم ليدر', commercial_rep: 'مندوب تجاري', company_manager: 'مدير شركة',
@@ -1646,6 +1647,8 @@ async function extractVisitsFromExcelRaw(file, user) {
     rawRepNames = taskToCol
       ? [...new Set(rows.map(r => leadingSegment(r[taskToCol])).filter(Boolean))]
       : [];
+    // صيغة CRM = تصدير دوفايد: سجلّ أسمائه يغذّي علامة «مربوط بدوفايد» (lib/externalRepNames.js)
+    recordExternalRepNames(DOFIED, rawRepNames).catch(() => {});
   } else {
     for (const [field, kws] of Object.entries(COL_KEYWORDS)) colMap[field] = findCol(headers, kws);
     rawRepNames = colMap.repName
