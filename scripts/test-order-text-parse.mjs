@@ -526,5 +526,19 @@ check('منطقة الموديل غير المذكورة في سطر المذخ�
 }
 // [/arabic-item-qty]
 
+// [trailing-pharmacy] 2026-11-27 كروب الحلة (المرسِل «محمد رحيم حله»): الصنف ثم «ص الاريج» في سطر واحد.
+{
+  const { makeFormNumberQty } = await import('../server/lib/formNumberQty.js');
+  const fnq = makeFormNumberQty(['VOMIBREAK 4MG 10TAB', 'VOMIBREAK 8MG TAB', 'PANDEV 40MG TAB']);
+  const r = parseOrderText('vomibreak 100 ص الاريج');
+  check('«vomibreak 100 ص الاريج»: الصيدلية', [r.header.pharmacy, r.header.pharmacyLines], ['الاريج', 1]);
+  check('«vomibreak 100 ص الاريج»: الصنف', r.itemLines.map(l => parseItemLine(l, { formNumberQty: fnq })), [{ name: 'vomibreak', quantity: 100, bonus: null }]);
+  check('«Pandev 40» بحَكَم الكتالوج تبقى جرعة', parseItemLine('Pandev 40', { formNumberQty: fnq }), null);
+  check('علامة مجهولة «Foo 20» ⇒ لا حسم', parseItemLine('Foo 20', { formNumberQty: fnq }), null);
+  const x = parseOrderText('Pandev 40 (10) صيدلية النور م سيادة');
+  check('«Pandev 40 (10) صيدلية النور م سيادة»', [x.header.pharmacy, x.header.warehouse, x.itemLines], ['النور', 'سيادة', ['Pandev 40 (10)']]);
+}
+// [/trailing-pharmacy]
+
 console.log(failed ? `\n✗ ${failed} فشل` : '\n✓ كلها ناجحة');
 process.exit(failed ? 1 : 0);

@@ -141,6 +141,10 @@ const PHARMACY_TAIL_WAREHOUSE_RE = /^(\S.*?)\s+(?:ال)?(?:م|مذخر)(?:\s*[.:
 // قبل أول كلمة لاتينية، وقبلها فعل قصير اختياري («تم تجهيز»). الكلمة الكاملة «صيدلية»
 // فقط (لا «ص» وحدها) — وسط جملة عربية «ص» تحتمل غيرها.
 const INLINE_PHARMACY_RE = /^((?:[؀-ۿ]+\s+){0,3}?)(?:ال)?صيدلي[ةه]\s+((?:[؀-ۿ]+\s+){0,3}[؀-ۿ]+)\s+(?=[a-z])(.+)$/i;
+// [trailing-pharmacy] «vomibreak 100 ص الاريج» (كروب الحلة، 2026-11-27): الصنف أولاً ثم «ص/صيدلية»
+// واسم الصيدلية العربي (1–4 كلمات) في **آخر** السطر نفسه. الاسم بعد «ص» عربي خالص بلا أرقام.
+const TRAILING_PHARMACY_RE = /^(.*[a-z].*?)\s+(?:ال)?(?:صيدلي[ةه]|ص)(?:\s*[.:：\-/]\s*|\s+)((?:[؀-ۿ]+\s+){0,3}[؀-ۿ]+)$/i;
+// [/trailing-pharmacy]
 // سهم يفصل حقلين في سطر واحد: «م. الضامن ⬅️ ص. علاء عبد الحسن».
 const ARROW_SPLIT_RE = /\s*(?:[←-⇿➡➔➘-➯⬅-⬇⭠-⭯]️?|<-+|-+>|=>)\s*/u;
 // «اضافة» وحدها في سطر: المندوب يردّ على طلبية سابقة ويضيف أصنافاً (كربلاء 2026-11-23).
@@ -249,6 +253,18 @@ export function parseOrderText(text, { isKnownWarehouse: isKnownInDb = () => fal
       if (header.pharmacy == null) { header.pharmacy = tidy(m[2]); pharmacyIdx = idx; }
       line = tidy(m[3]);
     }
+    // [trailing-pharmacy]
+    if ((m = line.match(TRAILING_PHARMACY_RE))) {
+      header.pharmacyLines++;
+      if (header.pharmacy == null) {
+        let ph = tidy(m[2]);
+        const wh = ph.match(PHARMACY_TAIL_WAREHOUSE_RE);
+        if (wh) { ph = tidy(wh[1]); header.warehouse ??= cleanWarehouseName(wh[2]); }
+        header.pharmacy = ph; pharmacyIdx = idx;
+      }
+      line = tidy(m[1]);
+    }
+    // [/trailing-pharmacy]
     if ((m = line.match(AREA_LINE_RE))) {
       header.area ??= tidy(m[1]);
       return;
@@ -389,6 +405,8 @@ const shortMidTail = (t) => t.trim().split(/\s+/).length <= 3 && !MID_TAIL_STOP_
 // «Vomibreak tab 5» — رقم بلا وحدة بعد كلمة الشكل الصيدلاني (كربلاء 2026-11-23). ملتبس
 // بذاته: «Azitro tab 500» و«Concor tab 5» جرعة. يُقرأ كمية فقط إن أكّد المستدعي
 // (opts.formNumberQty) أن لا صنف من العلامة يحمل هذه الجرعة في الكتالوج.
+// [brand-num] «vomibreak 100» — علامة لاتينية (1–2 كلمة بلا أرقام) ثم رقم وحده (2026-11-27).
+const BRAND_NUM_END = /^([a-z][a-z.\-]{2,}(?:\s+[a-z][a-z.\-]*)?)\s+(\d{1,3})$/i;
 const FORM_NUM_END = /^(.*?[a-z].*?\s(?:tabs?|tablets?|caps?|capsules?|amps?|ampoules?|vials?|syr|syrup|susp?|suspension|sachets?|supp|drops?|gel|cream|spray|inj))\.?\s*(\d{1,3})$/i;
 
 /**
@@ -422,6 +440,11 @@ export function parseItemLine(line, opts = {}) {
     if (m[2] != null) bonus = Number(m[2]);
   } else if ((m = s.match(FORM_NUM_END)) && typeof opts.formNumberQty === 'function'
       && opts.formNumberQty(tidy(m[1]), Number(m[2]))) {
+    quantity = Number(m[2]); name = m[1];
+  } else if ((m = s.match(BRAND_NUM_END)) && typeof opts.formNumberQty === 'function'
+      && opts.formNumberQty(tidy(m[1]), Number(m[2]))) {
+    // [brand-num] «vomibreak 100»: رقم بلا وحدة بعد العلامة مباشرة — كمية فقط إن لم يحمل
+    // أي صنف من العلامة هذا الرقم جرعةً في الكتالوج («Pandev 40» يبقى جرعة).
     quantity = Number(m[2]); name = m[1];
   } else {
     return null;

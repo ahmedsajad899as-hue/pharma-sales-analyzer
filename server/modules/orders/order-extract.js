@@ -420,7 +420,7 @@ export async function extractOrderRowsByMode(text, { mode = 'both', todayISO, th
 //     الناقصة تُستبدل بقراءة المحلّل إن حسم النصّ كاملاً (كروب الديوانية، Voranex).
 // 19 (2026-11-23): «ديدروفوم ⏎ ٣٠ق» سطر الكمية وحده تحت سطر عربي بلا عنوان يجعله صنفاً (لا منطقة)،
 //     و«تم التجهيز» سطر حالة يُتجاهل.
-export const TEXT_PARSE_VERSION = 19;
+export const TEXT_PARSE_VERSION = 20;
 
 /**
  * القراءة الحتمية للنصّ تغلب اجتهاد الموديل حيث يحسم الشكل: ترويسة متعدّدة الأسطر
